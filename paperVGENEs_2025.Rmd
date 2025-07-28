@@ -1,0 +1,161 @@
+---
+title: "paperVGENEs_2025"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+# Load necessary libraries
+library(foreach , lib.loc = "/doctorai/niccoloc/libR2")
+library(doParallel , lib.loc = "/doctorai/niccoloc/libR2" )
+library(data.table , lib.loc = "/doctorai/niccoloc/libR2")
+library(dplyr , lib.loc = "/doctorai/niccoloc/libR2")
+library(stringr , lib.loc = "/doctorai/niccoloc/libR2")
+library(ggplot2 , lib.loc = "/doctorai/niccoloc/libR2")
+library(tidyr , lib.loc = "/doctorai/niccoloc/libR2")
+library(patchwork , lib.loc = "/doctorai/niccoloc/libR2")
+library(viridis , lib.loc = "/doctorai/niccoloc/libR2")
+
+
+
+
+```
+
+```{r}
+# set as working directory the path where this file is located
+library(rstudioapi, lib.loc = "/doctorai/niccoloc/libR2")
+
+working_dir=dirname(rstudioapi::getActiveDocumentContext()$path)
+
+#set the working dir and print if successful
+setwd(working_dir)
+
+if (getwd() == working_dir) {
+  print(paste("Working directory set to:", getwd()))
+} else {
+  stop("Failed to set working directory.")
+}
+```
+
+
+```{r EDA Langerak pre-leukemic data}
+
+x1= fread("langerak_final_db.tsv")
+
+
+x1 = x1 %>% select( - sequence, -sequence_alignment )
+
+
+x_group=x1 %>%
+group_by(sample, productive,junction_aa ) %>% 
+  summarise(num =n()) %>% 
+group_by(sample) %>% 
+  summarise(p = num/sum(num),num, productive, junction_aa) %>% 
+  ungroup() %>% mutate(
+    clone_rare=  as.factor(case_when(
+     p >0.1 ~ ">0.1 CLL",
+     p> 0.05  ~ ">0.05 expanded",
+     p >0.005 ~ ">0.005",
+     p> 0.0005 ~ ">0.0005",
+     .default = " <0.0005" )),
+  type= case_when(
+      str_detect(sample,"Control") ~ "control",
+ str_detect(sample,"Diagnostic") ~ "diagnostic",
+  str_detect(sample,"Sample_2")  ~ "sample2",
+  .default = "patient" ),
+ patient = str_c(str_split_i(sample,"_",1), str_split_i(sample,"_",2)))
+
+x_group$clone_rare <- factor(x_group$clone_rare, levels = rev(levels(factor(x_group$clone_rare))))  
+
+multiple_timepoints_samples = x_group %>% filter( type == "diagnostic" | type == "sample2") %>% pull(patient) %>% unique()
+
+
+n_productive_sample=x_group %>%
+  group_by(sample , productive) %>% 
+  summarise(n_prod= sum(num))  %>% ungroup()
+
+unprod_1000=n_productive_sample %>% filter(productive =="F", n_prod>=1000) %>% pull(sample)
+
+
+  ggplot(x_group %>% filter(
+         ))+
+  geom_col(aes(sample,num, fill= (clone_rare)),show.legend = T)+
+    geom_hline(yintercept = 1000)+
+    geom_hline(yintercept = 5000)+
+
+  facet_wrap(vars(type),  nrow=4, scales="free")+
+  # scale_color_manual( values = shuffled_colors  )+
+    labs(
+      x="productive",
+      y="sequence count",
+      fill = "Clone rarity\nPercent on total",
+      title = "Clone distribution of Langerak dataset:\npre-leukemic Patients, controls , and matched diagnostic samples"
+    )+
+    scale_fill_viridis_d(name= "Clone rarity\nPercent on total", direction = -1)+
+  theme_bw()+
+  theme(
+    # axis.text.x = element_text(angle = 45, hjust = 1)
+    axis.text.x = element_blank()
+    )
+
+
+#plot to check what samples are OK to train IGoR model - multiple timepoints
+  ggplot(x_group %>% filter( patient %in% multiple_timepoints_samples))+
+  geom_col(aes(interaction(productive),num, fill= clone_rare),show.legend = T)+
+    geom_hline(yintercept = 1000)+
+    geom_hline(yintercept = 5000)+
+    labs(
+      x="productive",
+      y="sequence count",
+      fill = "Clone rarity\nPercent on total",
+      title = "Clone distribution of pre-leukemic Patients with matched Diagnostic Sample"
+    )+  facet_wrap(vars(patient),  nrow=2)+
+  # scale_color_manual( values = shuffled_colors  )+
+    scale_fill_viridis_d(name= "Clone rarity\nPercent on total", direction = -1)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+#plot to check what samples are OK to train IGoR model - single pre-leukemic sample
+
+  ggplot(x_group %>% filter(!( patient %in% multiple_timepoints_samples),
+         sample %in% unprod_1000,
+         type != "control"))+
+  geom_col(aes(interaction(productive),num, fill= clone_rare),show.legend = T)+
+    geom_hline(yintercept = 1000)+
+    geom_hline(yintercept = 5000)+
+
+  facet_wrap(vars(patient),  nrow=2)+
+  # scale_color_manual( values = shuffled_colors  )+
+    labs(
+      x="productive",
+      y="sequence count",
+      fill = "Clone rarity\nPercent on total",
+      title = "Clone distribution of pre-leukemic Patients - no diagnostic sample"
+    )+
+    scale_fill_viridis_d(name= "Clone rarity\nPercent on total", direction = -1)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+
+
+
+ggplot(x_group %>% 
+           filter(sample %in% unprod_1000))+
+  geom_col(aes(sample,num, fill= junction_aa),color="black" ,show.legend = F)+
+    geom_hline(yintercept = 1000)+
+  # facet_wrap(vars(productive), scales="free")+
+  theme_bw()+
+  theme(axis.text.x = element_blank())
+
+
+```
+
+
+
+
+
+
+
+
+

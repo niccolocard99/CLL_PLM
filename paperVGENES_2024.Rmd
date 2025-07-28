@@ -1,0 +1,4359 @@
+---
+title: "paperVGENEs_2024"
+output: html_document
+date: "2024-08-05"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r , include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE,
+                      message = F,
+                      warning = F)
+
+
+library(tidyverse)
+library(stringr)
+library(data.table)
+library(alakazam)
+library(patchwork)
+ 
+library(seqinr)
+setwd("D:\\Utenti\\Desktop\\scuola\\Programmazione\\LaboratorioTesi\\stereotypes\\Post_tesi\\paper_vgenes")
+
+
+setwd("C:\\Users\\marco\\Desktop\\paper_vgenes ")
+
+nome_file<-"db_adj_3_arr.tsv"  
+nome_file<-"db_adj_4_arr_np12aa.tsv"
+nome_file<-"db_adj_5.tsv"
+
+
+mydb  <-read_tsv(nome_file) %>% as.data.frame() %>% 
+  mutate(clan=case_when(
+    vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    vfamily== "IGHV3"~ "Clan3"))
+
+stereo_length<-c(9,10,12,13,14,17,19,20,21,22,24)
+path1<-"D:\\Utenti\\Desktop\\scuola\\Programmazione\\LaboratorioTesi\\stereotypes\\Post_tesi\\analisi_DBs\\Analysis\\dataStereo2021_OK_v3.xlsx"
+dataStereoX <-as.data.frame( readxl::read_excel(path1))
+
+ 
+col_chosen<-c(
+  "sequence_id",
+  # "sequence",
+  "productive","v_call",      
+  "d_call","j_call","junction","junction_aa",
+  "locus","junction_length","v_identity","consensus_count",
+  "duplicate_count","clone_id","sample","tissue"   ,            
+  "lregion","cd5","subset","replicate",            
+  "d_frame","prcons","cregion","group_id" ,            
+  "n_count","n_cdr3","dup_id","group_id_dup",
+  # "classindup","duplicate_count_cross","consensus_count_cross","numdup",               
+  "vgene","cll_subset_arrest","assigned_subset","confidence","score_arrest","group_id_CL",
+  "n1_length","n2_length","p3v_length","p5d_length","p3d_length","p5j_length"   ,     
+  "vclan")
+
+
+
+```
+
+```{r}
+
+convert_ARRest<- function(x,reduce=T,col_vect){
+  if(missing(col_vect)) col_vect=c("sequence_id","SeqCure","assigned_subset" ,
+                                   "confidence","score_arrest" ,"mut_arrest",
+                                   "v_call","d_call", "j_call","junction_aa" ,"sequence","indel" );
+
+ temp1<-  x %>% rename(
+                    sequence_id = "# label of your sequence" ,                              
+                    SeqCure = "'worst' message level from ARResT/SeqCure",              
+                    assigned_subset = "assigned subset, or 'unassigned'",                       
+                    confidence ="confidence" ,                                             
+                    score_arrest ="score",                                                  
+                    mut_arrest ="IMGT/V-QUEST | V-gene and allele % identity to germline",
+                    v_call= "IMGT/V-QUEST | V-gene and allele",
+                    d_call= "IMGT/V-QUEST | D gene and allele",
+                    j_call ="IMGT/V-QUEST | J gene and allele",
+                    junction_aa =  "IMGT/V-QUEST | junction amino acid sequence",            
+                    sequence = "full nucleotide sequence",                               
+                    indel = "IMGT/V-QUEST | search for insertions and deletions" ) %>%
+    mutate(junction_aa = str_sub(junction_aa,2,-2),
+           sequence=str_to_upper(sequence),
+           score_arrest= str_replace(score_arrest,"minus","-"),
+           score_arrest= str_replace(score_arrest,"Inf","999"),
+           score_arrest= as.numeric(score_arrest)) 
+ 
+ 
+ 
+if(reduce==F) {return(temp1)} else{
+  return( select(temp1,col_vect))
+}  
+ 
+}
+
+```
+
+
+```{r  import  agosto CLL 2024 chiorazzi}
+
+db1<-fread("C:\\Users\\marco\\Desktop\\paper_vgenes\\cll2024_db-pass.tsv")
+#D:\Utenti\Download\arrest_download\02_08_2024_09_34
+
+
+# folder_arrest<- dirname( file.choose())
+folder_arrest<- "D:\\Utenti\\Download\\arrest_download\\02_08_2024_09_34"
+
+temp_arrested <- list.files(path =folder_arrest
+                      ,full.names =  T) %>%
+ map_df(~read_tsv(.,col_types =  cols(score= col_character())))
+arrested_igor<- convert_ARRest(temp_arrested) %>% 
+  mutate(junction_aa_length= str_length(junction_aa),
+         maj_subset= ifelse( grepl("CLL#",assigned_subset),assigned_subset,NA)) %>% distinct()
+
+
+kostas_new<-read.delim("kostas_2021_stereotypes.txt",
+                       sep="\t" )
+colnames(kostas_new)<-c("sequence_id","v_call","mut_perc","j_call","d_call",
+                        "d_frame","junction_aa_length","junction_aa", "maj_susbets")
+kostas_db <-  kostas_new %>% 
+  mutate(mut_stat= ifelse( mut_perc>98,"U","M"),
+         junction_aa_length=as.numeric(junction_aa_length),
+         maj_subset=str_c("#",maj_susbets),
+         d_frame=as.integer(d_frame),
+         vgene=getGene(v_call),
+         dgene=getGene(d_call),
+         jgene=getGene(j_call))
+
+
+
+CLL_20k<-db1 %>% 
+  select(any_of(col_chosen),sequence)%>% 
+  mutate(
+    cn=1,
+    productive= as.logical(productive),
+    CLL="CLL",
+    junction_aa = str_sub(junction_aa, 2, -2),
+    junction_aa_length = str_length(junction_aa),
+    vfamily = getFamily(v_call),
+    vallele= getAllele(v_call),
+    vgene = getGene(v_call),
+    dgene = getGene(d_call),
+    jgene = getGene(j_call),
+    clan=case_when(
+      vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+      vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+      vfamily== "IGHV3"~ "Clan3"),
+    freq_mut= 100-( v_identity*100),
+    mut_stat =ifelse(freq_mut >=2,"M","U")) %>% 
+  left_join( 
+    # mutate(stereo=ifelse(is.na(maj_subset),F,T)
+    #        ) %>%
+    # select(sequence_id, maj_subset,mut_arrest,junction_aa))  
+    arrested_igor %>%
+      mutate(stereo=ifelse(is.na(maj_subset),F,T),
+             assigned_subset= str_remove(maj_subset,"CLL")) %>%
+      select(sequence_id,assigned_subset,confidence ,mut_stat2= mut_arrest, sequence,maj_subset),
+    by= c("sequence_id","sequence") )  %>% 
+# 
+# mydb_kos = CLL_20k %>%
+#   filter(CLL=="CLL") %>% 
+  left_join(kostas_db %>% 
+              mutate(CLL="CLL") %>% 
+              select("junction_aa","junction_aa_length","CLL",
+                      "mut_stat","vgene",maj_subset_kos="maj_subset") %>% distinct(),
+            by=c("CLL" ,"junction_aa","junction_aa_length", "mut_stat","vgene")) %>% 
+  mutate(maj_subset=ifelse(is.na(maj_subset_kos),assigned_subset,maj_subset_kos),
+         lab= ifelse(grepl("^CLL",sequence_id),"nick", "GE") )
+  
+
+
+
+
+CLL_20k %>% 
+  left_join(kostas_db %>%
+               mutate(stereo=ifelse(is.na(maj_subset),F,T)) %>%
+               select(
+                 # sequence_id,
+                 maj_subset,mut_stat,junction_aa, vgene),
+            by = c("junction_aa","vgene", "maj_subset")) %>% View()
+
+
+# db2<-db1 %>%
+#   inner_join(arrested_igor %>% select(sequence_id,assigned_subset,confidence ,mut_stat= mut_arrest, sequence), by= c("sequence_id","sequence") )  
+
+
+# arrested_igor %>% filter( sequence_id %in% ( db2 %>% filter(is.na(assigned_subset) ) %>%  pull(sequence_id) )) %>% View()
+
+
+```
+
+```{r}
+
+
+mydb<-CLL_20k%>%
+  # filter(lab !="nick") %>% 
+  select(-c(v_call,d_call,j_call,locus, junction_length,v_identity)) %>% 
+  bind_rows(mydb %>% filter(CLL=="Healthy")) 
+
+
+
+
+```
+
+```{r Purify from stereo}
+
+a<- mydb %>%  filter(CLL=="CLL",grepl("#",maj_subset) )
+                  
+                  
+ciao1 <-  a %>%
+  # filter(maj_subset!="CLL#2") %>%     
+  group_by(mut_stat,maj_subset,vgene,dgene,jgene) %>% 
+  summarise(num=n() )  %>% 
+  group_by(mut_stat,maj_subset) %>% 
+  arrange(desc(num)) %>%
+  slice_head(n=1)  
+# ciao2 <-  a %>%
+#   filter(assigned_subset=="CLL#2") %>%     
+#   group_by(assigned_subset,mut_stat,vgene,confidence) %>% 
+#   summarise(num=n() )  %>% 
+#   group_by(assigned_subset,mut_stat) %>% 
+#   arrange(desc(num),desc(confidence)) %>%
+#   slice_head(n=1)  
+
+
+
+ciao_join <- bind_rows(
+  ciao1 %>%
+    select(-num) %>%
+    inner_join(
+      mydb %>%  filter(CLL == "CLL"),
+      by = c("mut_stat","maj_subset", "vgene","dgene","jgene" ),
+      multiple = "first"))
+
+mydb_stereo_red<-mydb %>%
+  filter(!( grepl("#",maj_subset) )) %>%
+  bind_rows(ciao_join)
+
+###major min stereotypes
+
+
+  kostas_new<-read.delim("kostas_2021_stereotypes.txt",
+                         sep="\t" 
+                         )
+  colnames(kostas_new)<-c("sequence_id","v_call","mut_perc","j_call","d_call",
+                          "d_frame","junction_aa_length","junction_aa", "maj_susbets")
+  kostas_db <-  kostas_new %>% 
+    mutate(mut_stat= ifelse( mut_perc>98,"U","M"),
+           junction_aa_length=as.numeric(junction_aa_length),
+           maj_subset=str_c("#",maj_susbets),
+           d_frame=as.integer(d_frame),
+           vgene=getGene(v_call),
+           dgene=getGene(d_call),
+           jgene=getGene(j_call))
+
+mydb_kos<-mydb %>%
+  filter(CLL=="CLL") %>% 
+  left_join(kostas_db %>% 
+               select("junction_aa","junction_aa_length",
+                      "mut_stat","vgene","maj_subset") %>% distinct(),
+            by=c("junction_aa","junction_aa_length", "mut_stat","vgene")) %>% 
+  mutate(maj_subset2=ifelse(is.na(maj_subset),assigned_subset,maj_subset))
+
+
+
+
+
+
+
+a<- mydb_kos %>%  filter( grepl("#",maj_subset2) )
+                  
+                  
+ciao1 <-  a %>%
+  group_by(mut_stat, maj_subset2,vgene,confidence) %>% 
+  summarise(num=n() )  %>% 
+  group_by(mut_stat, maj_subset2) %>% 
+  arrange(desc(num),desc(confidence)) %>%
+  slice_head(n=1)  
+   
+
+
+
+ciao_join <-    ciao1 %>%
+    select(-num) %>%
+    inner_join(
+      mydb_kos %>%  filter(CLL == "CLL"),
+      by = c("mut_stat", "maj_subset2", "vgene", "confidence"),
+      multiple = "first")
+  
+ 
+mydb_kostas_red<-mydb_kos %>%
+  filter(!( grepl("#",maj_subset2) )) %>% 
+  bind_rows(ciao_join)
+
+
+
+
+```
+
+
+```{r Purify from stereo}
+
+
+
+
+# a<- mydb %>%  filter(CLL=="CLL",grepl("CLL#",assigned_subset) )
+#                   
+#                   
+# ciao1 <-  a %>%
+#   filter(assigned_subset!="CLL#2") %>%     
+#   group_by(assigned_subset,vgene,confidence) %>% 
+#   summarise(num=n() )  %>% 
+#   group_by(mut_stat,assigned_subset) %>% 
+#   arrange(desc(num),desc(confidence)) %>%
+#   slice_head(n=1)  
+# ciao2 <-  a %>%
+#   filter(assigned_subset=="CLL#2") %>%     
+#   group_by(assigned_subset,mut_stat,vgene,confidence) %>% 
+#   summarise(num=n() )  %>% 
+#   group_by(assigned_subset,mut_stat) %>% 
+#   arrange(desc(num),desc(confidence)) %>%
+#   slice_head(n=1)  
+# 
+# 
+# 
+# ciao_join <- bind_rows(
+#   ciao1 %>%
+#     select(-num) %>%
+#     inner_join(
+#       mydb %>%  filter(CLL == "CLL"),
+#       by = c("assigned_subset", "vgene", "confidence"),
+#       multiple = "first")
+#   ,
+#   ciao2 %>%
+#     select(-num) %>%
+#     inner_join(
+#       mydb %>%  filter(CLL == "CLL"),
+#       by = c("assigned_subset", "mut_stat", "vgene", "confidence"),
+#       multiple = "first")
+# )
+# 
+# mydb_stereo_red<-mydb %>%
+#   filter(!( grepl("CLL#",assigned_subset) )) %>% 
+#   bind_rows(ciao_join)
+# 
+# 
+
+
+
+
+###major min stereotypes
+
+
+  kostas_new<-read.delim("kostas_2021_stereotypes.txt",
+                         sep="\t" 
+                         )
+  colnames(kostas_new)<-c("sequence_id","v_call","mut_perc","j_call","d_call",
+                          "d_frame","junction_aa_length","junction_aa", "maj_susbets")
+  kostas_db <-  kostas_new %>% 
+    mutate(mut_stat= ifelse( mut_perc>98,"U","M"),
+           junction_aa_length=as.numeric(junction_aa_length),
+           maj_subset=str_c("#",maj_susbets),
+           d_frame=as.integer(d_frame),
+           vgene=getGene(v_call),
+           dgene=getGene(d_call),
+           jgene=getGene(j_call))
+
+mydb_kos<-mydb %>%
+  filter(CLL=="CLL") %>% 
+  left_join(kostas_db %>% 
+               select("junction_aa","junction_aa_length",
+                      "mut_stat","vgene","maj_subset") %>% distinct(),
+            by=c("junction_aa","junction_aa_length", "mut_stat","vgene")) %>% 
+  mutate(maj_subset2=ifelse(is.na(maj_subset),assigned_subset,maj_subset))
+
+
+
+
+
+
+
+a<- mydb_kos %>%  filter( grepl("#",maj_subset2) )
+                  
+                  
+ciao1 <-  a %>%
+  group_by(mut_stat, maj_subset2,vgene,confidence) %>% 
+  summarise(num=n() )  %>% 
+  group_by(mut_stat, maj_subset2) %>% 
+  arrange(desc(num),desc(confidence)) %>%
+  slice_head(n=1)  
+   
+
+
+
+ciao_join <-    ciao1 %>%
+    select(-num) %>%
+    inner_join(
+      mydb_kos %>%  filter(CLL == "CLL"),
+      by = c("mut_stat", "maj_subset2", "vgene", "confidence"),
+      multiple = "first")
+  
+ 
+mydb_kostas_red<-mydb_kos %>%
+  filter(!( grepl("#",maj_subset2) )) %>% 
+  bind_rows(ciao_join)
+
+
+
+
+```
+
+```{r  choose control}
+# table(mydb$maj_subset)
+
+#IgM e CD5+
+
+choose_control<-function(x,cd5_choice="5P",cregion_choice="HCM"){
+ x<- as.data.frame(x) %>% 
+  filter(cregion %in% cregion_choice  | is.na(cregion),
+         cd5 %in% cd5_choice | is.na(cregion)) 
+ return(x)
+}
+
+mydb %>% choose_control(c("5P","5N")) %>% pull(cd5) %>% unique()
+unique(mydb$cregion)
+
+cd5_choice <-c("5P","5N")
+cregion_choice <-c("HCG" ,"HCM")
+cd5_choice <- "5P"
+cregion_choice <- "HCM"
+# choose_control(cd5_choice,cregion_choice)
+
+mydb<-mydb  %>%  choose_control(cd5_choice,cregion_choice)  
+mydb_stereo_red<-mydb_stereo_red  %>%  choose_control(cd5_choice,cregion_choice)  
+# mydb_norm<-mydb   
+mydb_stereo_ONLY<- mydb_stereo_red %>% filter(!is.na(maj_subset))
+
+ 
+
+``` 
+
+```{r  statistical  MEDIAN}
+
+# Binomial Test + Bonferroni
+ 
+library(foreach)
+
+
+binom_table<-mydb %>%
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL, vgene) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = CLL, values_from = n) %>%
+  filter(!is.na(CLL),!is.na(Healthy)) #!is.na(Donors) &
+
+
+binom_table<-mydb %>%
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL,vfamily, vgene,sample) %>%
+  summarise(n = n()) %>%
+  group_by(sample) %>%  
+  mutate(freq= n/sum(n) ) %>% 
+  group_by(CLL,vfamily, vgene) %>%
+  summarise(n= sum(n),
+            median = median(freq),
+            mean= mean(freq))   %>% 
+   pivot_wider(names_from = CLL, values_from = c("n","median","mean")) %>%
+  filter(!is.na(n_CLL),!is.na(n_Healthy))
+
+
+# binom_table$is_higher<-ifelse(
+#   (binom_table$CLL/sum(binom_table$CLL)-
+#   binom_table$Healthy/sum(binom_table$Healthy))>0,"CLL","Healthy")
+
+
+binomial <- foreach(s = binom_table$vgene, .combine = rbind) %do% {
+  # s <- "#1"
+    # s <-  "IGHV1-18" 
+   bDB <- binom_table %>%
+    filter(vgene == s)
+   #statistics with bulk sum
+  binstat <- binom.test(bDB$n_CLL,
+                        sum(binom_table$n_CLL),
+                        p = bDB$n_Healthy/sum(binom_table$n_Healthy))
+    bDB$p.adj_sum <- binstat$p.value*nrow(binom_table)
+
+   #statistics with mean
+  binstat <- binom.test(bDB$n_CLL,
+                        sum(binom_table$n_CLL),
+                        p = bDB$mean_Healthy)
+    bDB$p.adj_mean <- binstat$p.value*nrow(binom_table)
+
+   #statistics with median
+  binstat <- binom.test(bDB$n_CLL,
+                        sum(binom_table$n_CLL),
+                        p = bDB$median_Healthy)
+    bDB$p.adj_median <- binstat$p.value*nrow(binom_table)
+
+   # p = sum(binom_table$CLL)/sum(binom_table$Healthy))
+  bDB$p.adj <- binstat$p.value*nrow(binom_table)
+  # bDB$p.val <- binstat$p.value 
+
+   # bDB$p.adj <- binstat$p.value 
+
+  bDB
+}  
+
+# binomial$p.adj22<-  p.adjust(binomial$p.val,
+#                              method = "bonferroni" )
+  
+binomial  <- binomial  %>%
+  mutate(
+   # UGUALE_P=ifelse(p.adj==p.adj22,T,F),
+    
+    p.signif_median = case_when(
+    p.adj_median > 0.05 ~ "ns" ,
+    p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "*",
+    p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "**",
+    p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "***",
+    p.adj_median <= 0.0001 ~ "***"),
+        p.signif_mean = case_when(
+    p.adj_mean > 0.05 ~ "ns" ,
+    p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "*",
+    p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "**",
+    p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "***",
+    p.adj_mean <= 0.0001 ~ "****"),
+        p.signif_sum = case_when(
+    p.adj_sum > 0.05 ~ "ns" ,
+    p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "*",
+    p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "**",
+    p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "***",
+    p.adj_sum <= 0.0001 ~ "****"),
+    clan=case_when(
+    vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    vfamily== "IGHV3"~ "Clan3"),
+   signif_higher=ifelse(p.signif_median!="ns" & median_CLL> median_Healthy ,p.signif_median, "" )
+    ) %>% 
+  # rename(n_CLL=CLL,
+  #        n_Healthy=Healthy) %>% 
+  ungroup()
+binomial$CLL<-"CLL" #serve per il merge con mydb
+
+signif_gene<-binomial %>%  filter(p.signif_median !="ns") %>%  pull(vgene)
+
+## signif D gene
+
+ 
+library(foreach)
+
+binom_table<-mydb %>%
+  choose_control(cd5_choice,cregion_choice) %>%  
+ group_by(CLL,dgene,sample) %>%
+  summarise(n = n()) %>%
+  group_by(sample) %>%  
+  mutate(freq= n/sum(n) ) %>% 
+  group_by(CLL,dgene) %>%
+  summarise(n= sum(n),
+            median = median(freq),
+            mean= mean(freq))   %>% 
+   pivot_wider(names_from = CLL, values_from = c("n","median","mean")) %>%
+  filter(!is.na(n_CLL),!is.na(n_Healthy), !is.na(dgene))
+
+# binom_table$is_higher<-ifelse(
+#   (binom_table$CLL/sum(binom_table$CLL)-
+#   binom_table$Healthy/sum(binom_table$Healthy))>0,"CLL","Healthy")
+
+  
+binomial_dgene <- foreach(s = binom_table$dgene, .combine = rbind) %do% {
+  # s <- "#1"
+    # s <-  "IGHV1-18" 
+   bDB <- binom_table %>%
+    filter(dgene == s)
+ binstat <- binom.test(bDB$n_CLL,
+                        sum(binom_table$n_CLL),
+                        p = bDB$n_Healthy/sum(binom_table$n_Healthy))
+    bDB$p.adj_sum <- binstat$p.value*nrow(binom_table)
+
+   #statistics with mean
+  binstat <- binom.test(bDB$n_CLL,
+                        sum(binom_table$n_CLL),
+                        p = bDB$mean_Healthy)
+    bDB$p.adj_mean <- binstat$p.value*nrow(binom_table)
+
+   #statistics with median
+  binstat <- binom.test(bDB$n_CLL,
+                        sum(binom_table$n_CLL),
+                        p = bDB$median_Healthy)
+    bDB$p.adj_median <- binstat$p.value*nrow(binom_table)
+    
+  bDB$p.adj <- binstat$p.value*nrow(binom_table)
+  bDB$p.val <- binstat$p.value 
+
+   # bDB$p.adj <- binstat$p.value 
+
+  bDB
+}  
+
+binomial_dgene$p.adj22<-  p.adjust(binomial_dgene$p.val,
+                             method = "bonferroni" )
+  
+binomial_dgene  <- binomial_dgene  %>%
+  mutate(
+  p.signif_median = case_when(
+    p.adj_median > 0.05 ~ "ns" ,
+    p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "*",
+    p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "**",
+    p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "***",
+    p.adj_median <= 0.0001 ~ "***"),
+        p.signif_mean = case_when(
+    p.adj_mean > 0.05 ~ "ns" ,
+    p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "*",
+    p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "**",
+    p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "***",
+    p.adj_mean <= 0.0001 ~ "****"),
+        p.signif_sum = case_when(
+    p.adj_sum > 0.05 ~ "ns" ,
+    p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "*",
+    p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "**",
+    p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "***",
+    p.adj_sum <= 0.0001 ~ "****"),
+     signif_higher=ifelse(p.signif_median!="ns" & median_CLL> median_Healthy ,p.signif_median, "" )
+
+    ) %>% 
+  # rename(n_CLL=CLL,
+  #        n_Healthy=Healthy) %>% 
+  ungroup()
+binomial_dgene$CLL<-"CLL" #serve per il merge con mydb
+
+signif_dgene<-binomial_dgene %>%  filter(p.signif_median !="ns") %>%  pull(dgene)
+
+
+
+
+
+######## UM binomial
+library(foreach)
+
+#binom_table <-mydb %>%
+  
+binom_table <-mydb %>%  
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL,mut_stat, vfamily, vgene,sample) %>%
+  summarise(n = n()) %>%
+  group_by(mut_stat,sample) %>%  
+  mutate(freq= n/sum(n) ) %>% 
+  group_by(CLL,mut_stat, vfamily, vgene) %>%
+ summarise(n= sum(n),
+            median = median(freq),
+            mean= mean(freq))   %>% 
+   pivot_wider(names_from = CLL, values_from = c("n","median","mean")) %>%
+  filter(!is.na(n_CLL),!is.na(n_Healthy), !is.na(vgene)) 
+
+
+
+bonferroni_rows<-nrow(binom_table)
+
+binom_table_UM<-split(binom_table,binom_table$mut_stat)
+
+# binom_table_UM<-lapply(binom_table_UM,  function(x) {
+#  x$is_higher= ifelse(  (x$CLL/sum(x$CLL)-
+#   x$Healthy/sum(x$Healthy))>0,"CLL","Healthy") ;
+#  return(x )})
+
+  
+binomial_UM <- foreach(s = unique(binom_table$vgene), .combine = rbind) %do% {
+  # s <- "#1"
+      # s <-  "IGHV4-34" 
+        # s <-  "IGHV4-34" 
+  # s<-"IGHV7-4-1"
+# seleziono stato mutazionale U 
+
+   bDB_U <- binom_table_UM$U %>%
+    filter(vgene == s)
+   
+  if(nrow(bDB_U)>0){
+    
+    binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$n_Healthy/sum(binom_table$n_Healthy))
+    bDB_U$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$mean_Healthy)
+    bDB_U$p.adj_mean <- binstat$p.value*bonferroni_rows
+
+   #statistics with median
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$median_Healthy)
+    bDB_U$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  bDB_U$p.adj <- binstat$p.value*bonferroni_rows
+    
+  
+}
+   # seleziono stato mutazionale M  
+  
+  bDB_M <- binom_table_UM$M %>%
+    filter(vgene == s)
+  if(nrow(bDB_M)>0){
+    
+    binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$n_Healthy/sum(binom_table$n_Healthy))
+    bDB_M$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$mean_Healthy)
+    bDB_M$p.adj_mean <- binstat$p.value*bonferroni_rows
+   #statistics with median
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$median_Healthy)
+    bDB_M$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  bDB_M$p.adj <- binstat$p.value*bonferroni_rows
+    
+    
+} 
+ 
+  
+ bind_rows(bDB_U,bDB_M)
+
+# print("!!")
+# 
+# bDB
+}  
+  
+binomial_UM  <- binomial_UM  %>%
+  mutate(
+  p.signif_median = case_when(
+    p.adj_median > 0.05 ~ "ns" ,
+    p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "*",
+    p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "**",
+    p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "***",
+    p.adj_median <= 0.0001 ~ "***"),
+        p.signif_mean = case_when(
+    p.adj_mean > 0.05 ~ "ns" ,
+    p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "*",
+    p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "**",
+    p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "***",
+    p.adj_mean <= 0.0001 ~ "****"),
+        p.signif_sum = case_when(
+    p.adj_sum > 0.05 ~ "ns" ,
+    p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "*",
+    p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "**",
+    p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "***",
+    p.adj_sum <= 0.0001 ~ "****"),
+    clan=case_when(
+    vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    vfamily== "IGHV3"~ "Clan3"),
+   signif_higher=ifelse(p.signif_median!="ns" & median_CLL> median_Healthy ,p.signif_median, "" )
+    ) %>% 
+  # rename(n_CLL=CLL,
+  #        n_Healthy=Healthy) %>% 
+  ungroup()
+binomial_UM$CLL<-"CLL" #serve per il merge con mydb
+
+signif_gene<-binomial_UM %>%
+  filter(p.signif_median !="ns") %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  pull(vgene)
+signif_vgene<-signif_gene
+
+# signif_vgene_CLL<-binomial_UM %>%  filter(signif_higher =="**CLL") %>%
+#   mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+#   pull(vgene)
+# signif_V_CLL_UM<-binomial_UM %>%  filter(signif_higher =="**CLL", mut_stat=="U") %>%
+#   mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+#   pull(vgene)
+
+
+
+###STereo reduced Kostas 2021
+######## UM binomial
+library(foreach)
+
+#binom_table <-mydb %>%
+  
+binom_table <-mydb_stereo_red %>%   
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL,mut_stat, vfamily, vgene,sample) %>%
+  summarise(n = n()) %>%
+  group_by(mut_stat,sample) %>%  
+  mutate(freq= n/sum(n) ) %>% 
+  group_by(CLL,mut_stat, vfamily, vgene) %>%
+ summarise(n= sum(n),
+            median = median(freq),
+            mean= mean(freq))   %>% 
+   pivot_wider(names_from = CLL, values_from = c("n","median","mean")) %>%
+  filter(!is.na(n_CLL),!is.na(n_Healthy), !is.na(vgene)) 
+
+
+
+bonferroni_rows<-nrow(binom_table)
+
+binom_table_UM<-split(binom_table,binom_table$mut_stat)
+
+# binom_table_UM<-lapply(binom_table_UM,  function(x) {
+#  x$is_higher= ifelse(  (x$CLL/sum(x$CLL)-
+#   x$Healthy/sum(x$Healthy))>0,"CLL","Healthy") ;
+#  return(x )})
+
+  
+binomial_UM_kos <- foreach(s = unique(binom_table$vgene), .combine = rbind) %do% {
+  # s <- "#1"
+      # s <-  "IGHV4-34" 
+        # s <-  "IGHV4-34" 
+  # s<-"IGHV7-4-1"
+# seleziono stato mutazionale U 
+
+   bDB_U <- binom_table_UM$U %>%
+    filter(vgene == s)
+   
+  if(nrow(bDB_U)>0){
+    
+    binstat <- binom.test(bDB_U$n_CLL,
+                       sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$n_Healthy/sum(binom_table$n_Healthy))
+    bDB_U$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$mean_Healthy)
+    bDB_U$p.adj_mean <- binstat$p.value*bonferroni_rows
+
+   #statistics with median
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$median_Healthy)
+    bDB_U$p.adj_median <- binstat$p.value*nrow(binom_table)
+    
+  bDB_U$p.adj <- binstat$p.value*bonferroni_rows
+    
+  
+}
+   # seleziono stato mutazionale M  
+  
+  bDB_M <- binom_table_UM$M %>%
+    filter(vgene == s)
+  if(nrow(bDB_M)>0){
+    
+    binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$n_Healthy/sum(binom_table$n_Healthy))
+    bDB_M$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$mean_Healthy)
+    bDB_M$p.adj_mean <- binstat$p.value*bonferroni_rows
+   #statistics with median
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$median_Healthy)
+    bDB_M$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  bDB_M$p.adj <- binstat$p.value*bonferroni_rows
+    
+    
+} 
+ 
+  
+ bind_rows(bDB_U,bDB_M)
+
+# print("!!")
+# 
+# bDB
+}  
+  
+binomial_UM_kos  <- binomial_UM_kos  %>%
+  mutate(
+  p.signif_median = case_when(
+    p.adj_median > 0.05 ~ "ns" ,
+    p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "*",
+    p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "**",
+    p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "***",
+    p.adj_median <= 0.0001 ~ "***"),
+        p.signif_mean = case_when(
+    p.adj_mean > 0.05 ~ "ns" ,
+    p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "*",
+    p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "**",
+    p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "***",
+    p.adj_mean <= 0.0001 ~ "***"),
+        p.signif_sum = case_when(
+    p.adj_sum > 0.05 ~ "ns" ,
+    p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "*",
+    p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "**",
+    p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "***",
+    p.adj_sum <= 0.0001 ~ "***"),
+    clan=case_when(
+    vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    vfamily== "IGHV3"~ "Clan3"),
+   signif_higher=ifelse(p.signif_median!="ns" & median_CLL> median_Healthy ,p.signif_median, "" )
+    ) %>% 
+  # rename(n_CLL=CLL,
+  #        n_Healthy=Healthy) %>% 
+  ungroup()
+binomial_UM_kos$CLL<-"CLL_red" 
+
+
+
+
+# signif_gene_kos<-binomial_UM_kos %>%
+#   filter(p.signif !="ns") %>%
+#   mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+#   pull(vgene)
+#  
+
+###mydb_NO_STEREO
+######## UM binomial
+library(foreach)
+
+#binom_table <-mydb %>%
+  
+binom_table <-mydb_stereo_red %>% filter(!grepl("#",maj_subset)) %>%  
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL,mut_stat, vfamily, vgene) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = CLL, values_from = n) %>%
+  filter(!is.na(CLL),!is.na(Healthy)) #!is.na(Donors) &
+
+bonferroni_rows<-nrow(binom_table)
+
+binom_table_UM<-split(binom_table,binom_table$mut_stat)
+
+binom_table_UM<-lapply(binom_table_UM,  function(x) {
+ x$is_higher= ifelse(  (x$CLL/sum(x$CLL)-
+  x$Healthy/sum(x$Healthy))>0,"CLL","Healthy") ;
+ return(x )})
+
+  
+binomial_UM_nostereo <- foreach(s = unique(binom_table$vgene), .combine = rbind) %do% {
+  # s <- "#1"
+      # s <-  "IGHV4-34" 
+        # s <-  "IGHV4-34" 
+  # s<-"IGHV7-4-1"
+# seleziono stato mutazionale U 
+
+   bDB_U <- binom_table_UM$U %>%
+    filter(vgene == s)
+   
+  if(nrow(bDB_U)>0){
+   
+  binstat_U <- binom.test(bDB_U$CLL,
+                        sum(binom_table_UM$U$CLL),
+                        p = bDB_U$Healthy/sum(binom_table_UM$U$Healthy))
+  bDB_U$p.adj <- binstat_U$p.value*bonferroni_rows
+
+}
+   # seleziono stato mutazionale M  
+  
+  bDB_M <- binom_table_UM$M %>%
+    filter(vgene == s)
+  if(nrow(bDB_M)>0){
+  binstat_M <- binom.test(bDB_M$CLL,
+                        sum(binom_table_UM$M$CLL),
+                        p = bDB_M$Healthy/sum(binom_table_UM$M$Healthy))
+  bDB_M$p.adj <- binstat_M$p.value*bonferroni_rows
+} 
+ 
+  
+ bind_rows(bDB_U,bDB_M)
+
+# print("!!")
+# 
+# bDB
+}  
+  
+binomial_UM_nostereo  <- binomial_UM_nostereo  %>%
+  mutate(p.signif = case_when(
+    p.adj > 0.05 ~ "ns" ,
+    p.adj > 0.01 & p.adj <= 0.05 ~ "*",
+    p.adj > 0.001 & p.adj <= 0.01 ~ "**",
+    p.adj > 0.0001 & p.adj <= 0.001 ~ "***",
+    p.adj <= 0.0001 ~ "****"),
+    clan=case_when(
+    vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    vfamily== "IGHV3"~ "Clan3"),
+    signif_higher=ifelse(p.signif!="ns",paste0("**",is_higher),"ns")
+    ) %>% 
+  rename(n_CLL=CLL,
+         n_Healthy=Healthy) %>% 
+  ungroup()
+binomial_UM_nostereo$CLL<-"CLL" #serve per il merge con mydb
+
+signif_gene_nostereo<-binomial_UM_nostereo %>%
+  filter(p.signif !="ns") %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  pull(vgene)
+
+
+
+##### D binom UM----
+
+library(foreach)
+
+#binom_table <-mydb %>%
+  
+binom_table <-mydb  %>%  
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL,mut_stat, dgene,sample) %>%
+  summarise(n = n()) %>%
+  group_by(mut_stat,sample) %>%  
+  mutate(freq= n/sum(n) ) %>% 
+  group_by(CLL,mut_stat,dgene) %>%
+  summarise(n= sum(n),
+            median = median(freq),
+            mean= mean(freq))   %>% 
+   pivot_wider(names_from = CLL, values_from = c("n","median","mean")) %>%
+  filter(!is.na(n_CLL),!is.na(n_Healthy), !is.na(dgene))
+  # 
+  # group_by(CLL,mut_stat, dgene) %>%
+  # summarise(m= median(n)) %>%
+  # pivot_wider(names_from = CLL, values_from = m) %>%
+  # filter(!is.na(CLL),!is.na(Healthy),#!is.na(Donors) &
+  #        !is.na(dgene)) #!is.na(Donors) &
+  # 
+  # 
+
+
+
+
+bonferroni_rows<-nrow(binom_table)
+
+binom_table_UM_dgene<-split(binom_table,binom_table$mut_stat)
+
+# binom_table_UM_dgene<-lapply(binom_table_UM_dgene,  function(x) {
+#  x$is_higher= ifelse(  (x$CLL/sum(x$CLL)-
+#   x$Healthy/sum(x$Healthy))>0,"CLL","Healthy") ;
+#  return(x )})
+
+  
+binomial_UM_dgene <- foreach(s = unique(binom_table$dgene), .combine = rbind) %do% {
+  # s <- "#1"
+# seleziono stato mutazionale U 
+  #s<- "IGHD3-22"
+
+   bDB_U <- binom_table_UM_dgene$U %>%
+    filter(dgene == s)
+   
+  if(nrow(bDB_U)>0){
+    
+    
+      binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM_dgene$U$n_CLL),
+                        p = bDB_U$n_Healthy/sum(binom_table_UM_dgene$U$n_Healthy))
+    bDB_U$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM_dgene$U$n_CLL),
+                        p = bDB_U$mean_Healthy)
+    bDB_U$p.adj_mean <- binstat$p.value*bonferroni_rows
+
+   #statistics with median
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM_dgene$U$n_CLL),
+                        p = bDB_U$median_Healthy)
+    bDB_U$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  # bDB_U$p.adj <- binstat$p.value*bonferroni_rows
+    
+
+
+}
+   # seleziono stato mutazionale M  
+  
+  bDB_M <- binom_table_UM_dgene$M %>%
+    filter(dgene == s)
+  if(nrow(bDB_M)>0){
+binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM_dgene$M$n_CLL),
+                        p = bDB_M$n_Healthy/sum(binom_table$n_Healthy))
+    bDB_M$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM_dgene$M$n_CLL),
+                        p = bDB_M$mean_Healthy)
+    bDB_M$p.adj_mean <- binstat$p.value*bonferroni_rows
+   #statistics with median
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM_dgene$M$n_CLL),
+                        p = bDB_M$median_Healthy)
+    bDB_M$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  bDB_M$p.adj <- binstat$p.value*bonferroni_rows
+    
+    
+} 
+ 
+  
+ bind_rows(bDB_U,bDB_M)
+
+# print("!!")
+# 
+# bDB
+}  
+  
+binomial_UM_dgene  <- binomial_UM_dgene  %>%
+  mutate(  p.signif_median = case_when(
+    p.adj_median > 0.05 ~ "ns" ,
+    p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "*",
+    p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "**",
+    p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "***",
+    p.adj_median <= 0.0001 ~ "***"),
+        p.signif_mean = case_when(
+    p.adj_mean > 0.05 ~ "ns" ,
+    p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "*",
+    p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "**",
+    p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "***",
+    p.adj_mean <= 0.0001 ~ "***"),
+        p.signif_sum = case_when(
+    p.adj_sum > 0.05 ~ "ns" ,
+    p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "*",
+    p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "**",
+    p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "***",
+    p.adj_sum <= 0.0001 ~ "***"),
+    # clan=case_when(
+    # vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    # vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    # vfamily== "IGHV3"~ "Clan3"),
+   signif_higher=ifelse(p.signif_median!="ns" & median_CLL> median_Healthy ,p.signif_median, "" )
+    ) %>% 
+  # rename(n_CLL=CLL,
+  #        n_Healthy=Healthy) %>% 
+  ungroup()
+binomial_UM_dgene$CLL<-"CLL" #serve per il merge con mydb
+
+# signif_dgene_UM<-binomial_UM_dgene %>%  filter(p.signif !="ns") %>% 
+#   mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+#   pull(dgene)
+
+
+#####D binomial UM REDUCED----
+#### 
+  
+binom_table <-mydb_stereo_red  %>%  
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL,mut_stat, dgene,sample) %>%
+  summarise(n = n()) %>%
+  group_by(mut_stat,sample) %>%  
+  mutate(freq= n/sum(n) ) %>% 
+  group_by(CLL,mut_stat,dgene) %>%
+  summarise(n= sum(n),
+            median = median(freq),
+            mean= mean(freq))   %>% 
+   pivot_wider(names_from = CLL, values_from = c("n","median","mean")) %>%
+  filter(!is.na(n_CLL),!is.na(n_Healthy), !is.na(dgene))
+bonferroni_rows<-nrow(binom_table)
+
+binom_table_UM_dgene<-split(binom_table,binom_table$mut_stat)
+
+
+  
+binomial_UM_dgene_red <- foreach(s = unique(binom_table$dgene), .combine = rbind) %do% {
+  # s <- "#1"
+# seleziono stato mutazionale U 
+
+   bDB_U <- binom_table_UM_dgene$U %>%
+    filter(dgene == s)
+   
+  if(nrow(bDB_U)>0){
+   
+
+      binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM_dgene$U$n_CLL),
+                        p = bDB_U$n_Healthy/sum(binom_table_UM_dgene$U$n_Healthy))
+    bDB_U$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM_dgene$U$n_CLL),
+                        p = bDB_U$mean_Healthy)
+    bDB_U$p.adj_mean <- binstat$p.value*bonferroni_rows
+
+   #statistics with median
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM_dgene$U$n_CLL),
+                        p = bDB_U$median_Healthy)
+    bDB_U$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  # bDB_U$p.adj <- binstat$p.value*bonferroni_rows
+    
+}
+   # seleziono stato mutazionale M  
+  
+  bDB_M <- binom_table_UM_dgene$M %>%
+    filter(dgene == s)
+  if(nrow(bDB_M)>0){
+binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM_dgene$M$n_CLL),
+                        p = bDB_M$n_Healthy/sum(binom_table$n_Healthy))
+    bDB_M$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM_dgene$M$n_CLL),
+                        p = bDB_M$mean_Healthy)
+    bDB_M$p.adj_mean <- binstat$p.value*bonferroni_rows
+   #statistics with median
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM_dgene$M$n_CLL),
+                        p = bDB_M$median_Healthy)
+    bDB_M$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  bDB_M$p.adj <- binstat$p.value*bonferroni_rows
+} 
+ 
+  
+ bind_rows(bDB_U,bDB_M)
+
+# print("!!")
+# 
+# bDB
+}  
+  
+binomial_UM_dgene_red  <- binomial_UM_dgene_red  %>%
+  mutate(p.signif_median = case_when(
+    p.adj_median > 0.05 ~ "ns" ,
+    p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "*",
+    p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "**",
+    p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "***",
+    p.adj_median <= 0.0001 ~ "***"),
+        p.signif_mean = case_when(
+    p.adj_mean > 0.05 ~ "ns" ,
+    p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "*",
+    p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "**",
+    p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "***",
+    p.adj_mean <= 0.0001 ~ "***"),
+        p.signif_sum = case_when(
+    p.adj_sum > 0.05 ~ "ns" ,
+    p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "*",
+    p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "**",
+    p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "***",
+    p.adj_sum <= 0.0001 ~ "***"),
+    # clan=case_when(
+    # vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    # vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    # vfamily== "IGHV3"~ "Clan3"),
+   signif_higher=ifelse(p.signif_median!="ns" & median_CLL> median_Healthy ,p.signif_median, "" )
+    ) %>% 
+  ungroup()
+binomial_UM_dgene_red$CLL<-"CLL_red" #serve per il merge con mydb
+
+# signif_dgene_UM_red<-binomial_UM_dgene_red %>%  filter(p.signif !="ns") %>% 
+#   mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+#   pull(dgene)
+
+##### jgene UM ----
+library(foreach)
+
+#binom_table <-mydb %>%
+  
+binom_table <-mydb %>%  
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL,mut_stat, jgene,sample) %>%
+  summarise(n = n()) %>%
+  
+  group_by(mut_stat,sample) %>%  
+  mutate(freq= n/sum(n) ) %>% 
+  group_by(CLL,mut_stat,jgene) %>%
+  summarise(n= sum(n),
+            median = median(freq),
+            mean= mean(freq))   %>% 
+   pivot_wider(names_from = CLL, values_from = c("n","median","mean")) %>%
+  filter(!is.na(n_CLL),!is.na(n_Healthy), !is.na(jgene))
+  
+
+
+bonferroni_rows<-nrow(binom_table)
+
+binom_table_UM<-split(binom_table,binom_table$mut_stat)
+
+
+  
+binomial_UM_jgene <- foreach(s = unique(binom_table$jgene), .combine = rbind) %do% {
+  # s <- "#1"
+      # s <-  "IGHV4-34" 
+        # s <-  "IGHV4-34" 
+  # s<-"IGHV7-4-1"
+# seleziono stato mutazionale U 
+
+   bDB_U <- binom_table_UM$U %>%
+    filter(jgene == s)
+   
+  if(nrow(bDB_U)>0){
+   
+binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$n_Healthy/sum(binom_table_UM_dgene$U$n_Healthy))
+    bDB_U$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$mean_Healthy)
+    bDB_U$p.adj_mean <- binstat$p.value*bonferroni_rows
+
+   #statistics with median
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$median_Healthy)
+    bDB_U$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  # bDB_U$p.adj <- binstat$p.value*bonferroni_rows
+    
+}
+   # seleziono stato mutazionale M  
+  
+  bDB_M <- binom_table_UM$M %>%
+    filter(jgene == s)
+  if(nrow(bDB_M)>0){
+  
+  
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$n_Healthy/sum(binom_table_UM$M$n_Healthy))
+    bDB_M$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$mean_Healthy)
+    bDB_M$p.adj_mean <- binstat$p.value*bonferroni_rows
+   #statistics with median
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$median_Healthy)
+    bDB_M$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  bDB_M$p.adj <- binstat$p.value*bonferroni_rows
+
+} 
+ 
+  
+ bind_rows(bDB_U,bDB_M)
+
+# print("!!")
+# 
+# bDB
+}  
+  
+binomial_UM_jgene  <- binomial_UM_jgene  %>%
+  mutate( p.signif_median = case_when(
+    p.adj_median > 0.05 ~ "ns" ,
+    p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "*",
+    p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "**",
+    p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "***",
+    p.adj_median <= 0.0001 ~ "***"),
+        p.signif_mean = case_when(
+    p.adj_mean > 0.05 ~ "ns" ,
+    p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "*",
+    p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "**",
+    p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "***",
+    p.adj_mean <= 0.0001 ~ "***"),
+        p.signif_sum = case_when(
+    p.adj_sum > 0.05 ~ "ns" ,
+    p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "*",
+    p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "**",
+    p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "***",
+    p.adj_sum <= 0.0001 ~ "***"),
+    # clan=case_when(
+    # vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    # vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    # vfamily== "IGHV3"~ "Clan3"),
+   signif_higher=ifelse(p.signif_median!="ns" & median_CLL> median_Healthy ,p.signif_median, "" )
+    ) %>% 
+  # rename(n_CLL=CLL,
+  #        n_Healthy=Healthy) %>% 
+  ungroup()
+binomial_UM_jgene$CLL<-"CLL" #serve per il merge con mydb
+
+# signif_Jgene<-binomial_UM_jgene %>%
+#   filter(p.signif !="ns") %>%
+#   mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+#   pull(jgene)
+# signif_jgene<-signif_Jgene
+# 
+# signif_jgene_CLL<-binomial_UM_jgene %>%  filter(signif_higher =="**CLL") %>%
+#   mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+#   pull(jgene)
+# signif_J_CLL_UM<-binomial_UM_jgene %>%  filter(signif_higher =="**CLL", mut_stat=="U") %>%
+#   mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+#   pull(jgene)
+
+### JGENE  REDUCED ----
+ library(foreach)
+
+#binom_table <-mydb %>%
+  
+binom_table <-mydb_stereo_red %>%   
+ choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(CLL,mut_stat, jgene,sample) %>%
+  summarise(n = n()) %>%
+  group_by(mut_stat,sample) %>%  
+  mutate(freq= n/sum(n) ) %>% 
+  group_by(CLL,mut_stat,jgene) %>%
+  summarise(n= sum(n),
+            median = median(freq),
+            mean= mean(freq))   %>% 
+   pivot_wider(names_from = CLL, values_from = c("n","median","mean")) %>%
+  filter(!is.na(n_CLL),!is.na(n_Healthy), !is.na(jgene))
+  
+
+bonferroni_rows<-nrow(binom_table)
+
+binom_table_UM<-split(binom_table,binom_table$mut_stat)
+
+
+
+  
+binomial_UM_jgene_red <- foreach(s = unique(binom_table$jgene), .combine = rbind) %do% {
+  # s <- "#1"
+      # s <-  "IGHV4-34" 
+        # s <-  "IGHV4-34" 
+  # s<-"IGHV7-4-1"
+# seleziono stato mutazionale U 
+
+   bDB_U <- binom_table_UM$U %>%
+    filter(jgene == s)
+   
+  if(nrow(bDB_U)>0){   
+binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$n_Healthy/sum(binom_table_UM_dgene$U$n_Healthy))
+    bDB_U$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$mean_Healthy)
+    bDB_U$p.adj_mean <- binstat$p.value*bonferroni_rows
+
+   #statistics with median
+  binstat <- binom.test(bDB_U$n_CLL,
+                        sum(binom_table_UM$U$n_CLL),
+                        p = bDB_U$median_Healthy)
+    bDB_U$p.adj_median <- binstat$p.value*bonferroni_rows
+
+}
+   # seleziono stato mutazionale M  
+  
+  bDB_M <- binom_table_UM$M %>%
+    filter(jgene == s)
+  if(nrow(bDB_M)>0){
+  
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$n_Healthy/sum(binom_table_UM$M$n_Healthy))
+    bDB_M$p.adj_sum <- binstat$p.value*bonferroni_rows
+   #statistics with mean
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$mean_Healthy)
+    bDB_M$p.adj_mean <- binstat$p.value*bonferroni_rows
+   #statistics with median
+  binstat <- binom.test(bDB_M$n_CLL,
+                        sum(binom_table_UM$M$n_CLL),
+                        p = bDB_M$median_Healthy)
+    bDB_M$p.adj_median <- binstat$p.value*bonferroni_rows
+    
+  bDB_M$p.adj <- binstat$p.value*bonferroni_rows
+
+} 
+ 
+  
+ bind_rows(bDB_U,bDB_M)
+
+# print("!!")
+# 
+# bDB
+}  
+  
+binomial_UM_jgene_red  <- binomial_UM_jgene_red  %>%
+  mutate(p.signif_median = case_when(
+    p.adj_median > 0.05 ~ "ns" ,
+    p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "*",
+    p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "**",
+    p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "***",
+    p.adj_median <= 0.0001 ~ "***"),
+        p.signif_mean = case_when(
+    p.adj_mean > 0.05 ~ "ns" ,
+    p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "*",
+    p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "**",
+    p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "***",
+    p.adj_mean <= 0.0001 ~ "***"),
+        p.signif_sum = case_when(
+    p.adj_sum > 0.05 ~ "ns" ,
+    p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "*",
+    p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "**",
+    p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "***",
+    p.adj_sum <= 0.0001 ~ "***"),
+    # clan=case_when(
+    # vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    # vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    # vfamily== "IGHV3"~ "Clan3"),
+   signif_higher=ifelse(p.signif_median!="ns" & median_CLL> median_Healthy ,p.signif_median, "" )
+    ) %>% 
+  ungroup()
+binomial_UM_jgene_red$CLL<-"CLL_red" #serve per il merge con mydb
+
+# signif_gene_kos<-binomial_UM_jgene_red %>%
+#   filter(p.signif !="ns") %>%
+#   mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+#   pull(jgene)
+#  
+
+
+
+
+
+
+
+
+
+ 
+##### binomial subset
+
+ 
+
+#binom_table <-mydb %>%
+  
+binom_table <-mydb %>% 
+  mutate(subset =ifelse(CLL=="CLL", "CLL", subset)) %>% 
+  filter(subset !="TR" ) %>% 
+  choose_control(cd5_choice,cregion_choice) %>%  
+  group_by(subset,mut_stat, vfamily, vgene) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = subset, values_from = n) %>%
+  filter(!is.na(CLL),!is.na(Healthy)) #!is.na(Donors) &
+
+bonferroni_rows<-nrow(binom_table)
+
+binom_table_UM<-split(binom_table,binom_table$mut_stat)
+
+# binom_table_UM<-lapply(binom_table_UM,  function(x) {
+#  x$is_higher= ifelse(  (x$CLL/sum(x$CLL)-
+#   x$Healthy/sum(x$Healthy))>0,"CLL","Healthy") ;
+#  return(x )})
+
+subsets<-c("DN","MO", "MZ" ,"N")
+  
+binomial_UM_subset <- foreach(s = unique(binom_table$vgene), .combine = rbind) %do% {
+  # s <- "#1"
+        # s <-  "IGHV4-34" 
+        # s <-  "IGHV4-34" 
+  # s<-"IGHV7-4-1"
+# seleziono stato mutazionale U 
+
+   bDB_U <- binom_table_UM$U %>%
+    filter(vgene == s)
+   if(nrow(bDB_U)>0){
+#i è il numero dei subset usati  
+  for (i in subsets) {
+    
+   n_subset<- bDB_U[, i ] %>% as.numeric()
+   tot_subset<- sum(binom_table_UM$U[,i ])
+    
+     binstat_U <- binom.test(bDB_U$CLL,
+                        sum(binom_table_UM$U$CLL),
+                        p = n_subset/tot_subset) 
+     col_name<- str_c(i,"_pval")
+     bDB_U[,col_name]<- binstat_U$p.value*bonferroni_rows
+   
+  }
+    
+
+}
+   # seleziono stato mutazionale M  
+  
+  bDB_M <- binom_table_UM$M %>%
+    filter(vgene == s)
+  if(nrow(bDB_M)>0){
+       for (i in subsets) {
+    
+   n_subset<- bDB_M[, i ] %>% as.numeric()
+   tot_subset<- sum(binom_table_UM$M[,i ])
+    
+     binstat_M <- binom.test(bDB_M$CLL,
+                        sum(binom_table_UM$M$CLL),
+                        p = n_subset/tot_subset) 
+     col_name<- str_c(i,"_pval")
+     bDB_M[,col_name]<- binstat_M$p.value*bonferroni_rows
+   
+  }
+   
+} 
+ 
+  
+ bind_rows(bDB_U,bDB_M) %>% 
+   pivot_longer(ends_with("_pval"), names_to = "subset",
+                             values_to = "p.adj") %>% 
+   mutate(subset=str_remove(subset,"_pval"))
+
+# print("!!")
+# 
+# bDB
+}  
+  
+binomial_UM_subset  <- binomial_UM_subset  %>%
+  mutate(p.signif = case_when(
+    p.adj > 0.05 ~ "ns" ,
+    p.adj > 0.01 & p.adj <= 0.05 ~ "*",
+    p.adj > 0.001 & p.adj <= 0.01 ~ "**",
+    p.adj > 0.0001 & p.adj <= 0.001 ~ "***",
+    p.adj <= 0.0001 ~ "****"),
+    clan=case_when(
+    vfamily %in% c("IGHV1","IGHV5","IGHV7") ~ "Clan1",
+    vfamily %in% c("IGHV2","IGHV4","IGHV6")~ "Clan2",
+    vfamily== "IGHV3"~ "Clan3"),
+    # signif_higher=ifelse(p.signif!="ns",paste0("**",is_higher),"ns")
+    ) %>% 
+  rename(n_CLL=CLL,
+        ) %>%
+  ungroup()
+binomial_UM_subset$CLL<-"CLL" #serve per il merge con mydb
+
+signif_vgene_subset<-binomial_UM_subset %>%  filter(p.signif !="ns") %>%  pull(vgene)
+ 
+
+
+```
+
+```{r}
+setwd("C:\\Users\\marco\\Desktop\\paper_vgenes\\CLL_2024_img")
+```
+
+
+```{r general repertoire CD5 POS NEG}
+
+cd5_choice <-c(  
+  "5P",
+  "5N")
+cregion_choice <-c(
+  "HCG" ,
+                   "HCM")
+##AGGiugngi Statistica -- vedi che i due gruppi presentano le stesse differenze
+p1<-mydb %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  
+
+  group_by(CLL,cd5,mut_stat,vgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,cd5, mut_stat,sample) %>% 
+  summarise(p=n/sum(n)*100,n,vgene) %>% 
+  group_by(vgene) %>% 
+  filter(any(p>1)) 
+ 
+  pv<-    ggplot()+
+    geom_hline(yintercept = 0,size=0.75)+
+    
+    geom_boxplot(data=p1%>% filter(CLL!="CLL") ,
+                 # geom_col(data=p1%>% filter(CLL %in% c("CLL","SAMPLE_CDR3")) ,
+
+             aes(vgene,p, fill=cd5),color="black",
+             position = "dodge",
+             outlier.shape = NA,
+
+             # position= position_nudge(x=-0.15),
+               width = 0.8,
+             size=0.2
+             # alpha=0.4
+    )+
+    # geom_boxplot(data=p1%>% filter(CLL=="Healthy"),
+    #              aes(vgene,p, fill=mut_stat),color="black",
+    #             position= "dodge",
+    #              width = 0.7,
+    #              outlier.shape = NA,
+    #              size=0.2
+    # )+
+  
+    # geom_text(data=binomial %>%
+    #               mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+    # 
+    #             left_join(max_h_signif,by=c("vgene")) %>% 
+    #             
+    #             mutate(vgene= str_remove(vgene,"^IGH"),
+    #                     p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+    #                    signif_higher=ifelse(signif_higher=="",F,T)
+    #                    ) %>%
+    #             filter(vgene %in% unique(p1$vgene)),
+    #           aes(y=-3,x=vgene, label=p.signif_median, color=signif_higher),
+    #           show.legend = F, 
+    #           
+    #           angle = 45, vjust = 0.5, hjust=0.5,
+    #           
+    #           size=4
+    #           )+
+        
+        
+        
+        
+        # geom_text(data=binomial_UM_kos %>%
+        #         mutate(vgene= str_remove(vgene,"^IGH"),
+        #                # p_cll=ifelse(signif_higher=="**CLL",p.signif,"")
+        #                ) %>%
+        #         filter(vgene %in% unique(p1$vgene)),
+        #       aes(y=-2,x=vgene, label=signif_higher),            )+
+    scale_x_discrete(limits = str_sort(unique(p1$vgene),numeric=T))+
+    scale_y_continuous(limits = c(-3,26), breaks = c(seq(0, 100, by = 5)),
+                       labels =  c(seq(0, 100, by = 5))
+                       )+
+    # scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+    scale_color_manual(values = c("grey70" ,"black"))+
+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+          legend.position = "bottom"
+          
+    )+
+    facet_grid(
+      # cols=vars(clan),
+      rows = vars(mut_stat),
+      scales = "free_x",
+      space = "free_x")+
+    labs(
+      # title=title,
+      y="% on mutational status",
+      fill="",
+      x="VH genes") 
+    pv  
+  ##AGGiugngi Statistica -- vedi che i due gruppi presentano le stesse differenze
+p1<-mydb %>%
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  
+
+  group_by(CLL,cd5,mut_stat,dgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,cd5, mut_stat,sample) %>% 
+  summarise(p=n/sum(n)*100,n,dgene) %>% 
+  group_by(dgene) %>% 
+  filter(any(p>1)) 
+ 
+  pd<-    ggplot()+
+    geom_hline(yintercept = 0,size=0.75)+
+    
+    geom_boxplot(data=p1%>% filter(CLL!="CLL") ,
+                 # geom_col(data=p1%>% filter(CLL %in% c("CLL","SAMPLE_CDR3")) ,
+
+             aes(dgene,p, fill=cd5),color="black",
+             position = "dodge",
+              outlier.shape = NA,
+             # position= position_nudge(x=-0.15),
+               width = 0.8,
+             size=0.2
+             # alpha=0.4
+    )+
+    # geom_boxplot(data=p1%>% filter(CLL=="Healthy"),
+    #              aes(dgene,p, fill=mut_stat),color="black",
+    #             position= "dodge",
+    #              width = 0.7,
+    #              outlier.shape = NA,
+    #              size=0.2
+    # )+
+  
+    # geom_text(data=binomial %>%
+    #               mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+    # 
+    #             left_join(max_h_signif,by=c("dgene")) %>% 
+    #             
+    #             mutate(dgene= str_remove(dgene,"^IGH"),
+    #                     p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+    #                    signif_higher=ifelse(signif_higher=="",F,T)
+    #                    ) %>%
+    #             filter(dgene %in% unique(p1$dgene)),
+    #           aes(y=-3,x=dgene, label=p.signif_median, color=signif_higher),
+    #           show.legend = F, 
+    #           
+    #           angle = 45, vjust = 0.5, hjust=0.5,
+    #           
+    #           size=4
+    #           )+
+        
+        
+        
+        
+        # geom_text(data=binomial_UM_kos %>%
+        #         mutate(dgene= str_remove(dgene,"^IGH"),
+        #                # p_cll=ifelse(signif_higher=="**CLL",p.signif,"")
+        #                ) %>%
+        #         filter(dgene %in% unique(p1$dgene)),
+        #       aes(y=-2,x=dgene, label=signif_higher),            )+
+    scale_x_discrete(limits = str_sort(unique(p1$dgene),numeric=T))+
+    scale_y_continuous(limits = c(-3,26), breaks = c(seq(0, 100, by = 5)),
+                       labels =  c(seq(0, 100, by = 5))
+                       )+
+    # scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+    scale_color_manual(values = c("grey70" ,"black"))+
+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+          legend.position = "bottom"
+          
+    )+
+    facet_grid(
+      # cols=vars(clan),
+      rows = vars(mut_stat),
+      scales = "free_x",
+      space = "free_x")+
+    labs(
+      # title=title,
+      y="% on mutational status",
+      fill="",
+      x="DH genes") 
+      
+      pd
+      ##AGGiugngi Statistica -- vedi che i due gruppi presentano le stesse differenze
+p1<-mydb %>%
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  
+
+  group_by(CLL,cd5,mut_stat,jgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,cd5, mut_stat,sample) %>% 
+  summarise(p=n/sum(n)*100,n,jgene) %>% 
+  group_by(jgene) %>% 
+  filter(any(p>1)) 
+ 
+  pj<-    ggplot()+
+    geom_hline(yintercept = 0,size=0.75)+
+    
+    geom_boxplot(data=p1%>% filter(CLL!="CLL") ,
+                 # geom_col(data=p1%>% filter(CLL %in% c("CLL","SAMPLE_CDR3")) ,
+
+             aes(jgene,p, fill=cd5),color="black",
+             position = "dodge",
+             # position= position_nudge(x=-0.15),
+               width = 0.8,
+             outlier.shape = NA,
+
+             size=0.2
+             # alpha=0.4
+    )+
+    # geom_boxplot(data=p1%>% filter(CLL=="Healthy"),
+    #              aes(jgene,p, fill=mut_stat),color="black",
+    #             position= "dodge",
+    #              width = 0.7,
+    #              outlier.shape = NA,
+    #              size=0.2
+    # )+
+  
+    # geom_text(data=binomial %>%
+    #               mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+    # 
+    #             left_join(max_h_signif,by=c("jgene")) %>% 
+    #             
+    #             mutate(jgene= str_remove(jgene,"^IGH"),
+    #                     p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+    #                    signif_higher=ifelse(signif_higher=="",F,T)
+    #                    ) %>%
+    #             filter(jgene %in% unique(p1$jgene)),
+    #           aes(y=-3,x=jgene, label=p.signif_median, color=signif_higher),
+    #           show.legend = F, 
+    #           
+    #           angle = 45, vjust = 0.5, hjust=0.5,
+    #           
+    #           size=4
+    #           )+
+        
+        
+        
+        
+        # geom_text(data=binomial_UM_kos %>%
+        #         mutate(jgene= str_remove(jgene,"^IGH"),
+        #                # p_cll=ifelse(signif_higher=="**CLL",p.signif,"")
+        #                ) %>%
+        #         filter(jgene %in% unique(p1$jgene)),
+        #       aes(y=-2,x=jgene, label=signif_higher),            )+
+    scale_x_discrete(limits = str_sort(unique(p1$jgene),numeric=T))+
+    scale_y_continuous(limits = c(-3,60), breaks = c(seq(0, 100, by = 5)),
+                       labels =  c(seq(0, 100, by = 5))
+                       )+
+    # scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+    scale_color_manual(values = c("grey70" ,"black"))+
+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+          legend.position = "bottom"
+          
+    )+
+    facet_grid(
+      # cols=vars(clan),
+      rows = vars(mut_stat),
+      scales = "free_x",
+      space = "free_x")+
+    labs(
+      # title=title,
+      y="% on mutational status",
+      fill="",
+      x="JH genes") 
+pj
+## HCDR3 -----
+
+p1<-bind_rows(
+  # mydb_stereo_red %>% filter(CLL=="CLL", is.na(maj_subset)  ) %>%  mutate(CLL="CLL_nostereo")  ,
+  # mydb_stereo_red %>% filter(CLL=="CLL", !is.na(maj_subset) ) %>%  mutate(CLL="CLL_onlystereo"),
+  mydb_stereo_red %>% filter(CLL!="CLL") 
+  )    %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  filter( junction_aa_length <40)  %>% 
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  # mutate(assigned_subset=str_remove(assigned_subset,"CLL"),
+  #        assigned_subset=ifelse(is.na(assigned_subset) |
+  #                                 assigned_subset %in% c("skipped/unhealthy","unassigned"),
+  #                               "unassigned",assigned_subset))  %>% 
+  mutate(maj_subset=ifelse( grepl("^#m",maj_subset),"minor",maj_subset)) %>% 
+
+  group_by(CLL,cd5,mut_stat,junction_aa_length) %>%
+  summarise(n=sum(cn)) %>%
+  group_by(CLL,cd5,mut_stat) %>% 
+  summarise(p=n/sum(n)*100,junction_aa_length,mut_stat)  %>% 
+  ungroup()  
+  # mutate(maj_subset=ifelse( grepl("^#m",maj_subset),"minor",maj_subset))
+
+
+pcdr3<-ggplot(data=p1 ,aes(junction_aa_length,p))+
+  geom_line(data=p1  %>%
+              group_by(CLL,cd5,mut_stat,junction_aa_length) %>%
+              summarise(s=sum(p)), 
+            # position=position_dodge(width = 1 ),
+            aes(junction_aa_length,s+0.1 ,color= cd5) ,linewidth=1, 
+            show.legend = T)+
+ 
+  
+  scale_x_continuous(limits =c(7,34) , breaks = seq(7,35))+
+  # scale_fill_manual(values= pal_31 ) +
+  ylab("% on mut_status")+
+  # scale_color_manual(values = c("CLL_onlystereo" = "red",
+  #                               "Healthy" = "darkseagreen3",
+  #                               "CLL_nostereo" = "yellow" )) +
+  #   scale_fill_manual(values = c("CLL" = "red",
+  #                               "Healthy" = "darkseagreen3",
+  #                               "CLL_red" = "yellow" )) +
+    facet_grid(rows = vars(mut_stat)  ) +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust =0.5, hjust=1)) +
+  labs(
+       # title=title,
+       x= "aa HCDR3 length",
+       y="% on Mutationa status",
+       color= "HCDR3 length distribution",
+       fill=""
+       )  +
+   theme(legend.key.size = unit(0.5, 'cm'), legend.position = "bottom")
+
+cd5_choice<-"CD5BOTH"
+cregion_choice<-"HCM_HCG"
+  
+ggsave( plot = pv,filename = str_c("VGENE_", cd5_choice ,"__", cregion_choice,".jpeg") ,  device = "jpeg",
+        width = 16,height =10, units = "cm")   
+ggsave( plot = pd,filename = str_c("DGENE_",cd5_choice,"__", cregion_choice,".jpeg") ,  device = "jpeg",
+        width = 16,height =10, units = "cm")   
+ggsave( plot = pj,filename = str_c("JGENE_",cd5_choice,"__", cregion_choice,".jpeg") ,  device = "jpeg",
+        width = 16,height =10, units = "cm")   
+ggsave( plot = pcdr3,filename = str_c("HCDR3_",cd5_choice,"__", cregion_choice,".jpeg") ,  device = "jpeg",
+        width = 16,height =10, units = "cm")   
+
+
+
+cd5_choice <-c(  
+   "5P",
+  "5N")
+cregion_choice <-c("HCG" ,"HCM")
+
+mydb %>%
+  group_by(CLL,mut_stat, cd5) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,mut_stat) %>% 
+  summarise(p=n/sum(n),cd5) %>% 
+  filter(CLL!="CLL") %>% 
+  ggplot()+
+  geom_col(aes(mut_stat,p,fill=cd5)) 
+  facet_wrap(vars(subset))
+
+  mydb %>%
+  group_by(CLL,mut_stat, subset, cregion) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,mut_stat) %>% 
+  summarise(p=n/sum(n),subset,cregion) %>% 
+  filter(CLL!="CLL") %>% 
+  ggplot()+
+  geom_col(aes(subset,p,fill=cregion), position = "dodge")+
+  facet_wrap(vars(mut_stat))
+  
+  
+  
+
+mydb %>%
+  group_by(CLL,subset,mut_stat, cd5) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,subset,mut_stat) %>% 
+  summarise(p=n/sum(n),cd5) %>% 
+  filter(CLL!="CLL") %>% 
+  ggplot()+
+  geom_col(aes(subset,p,fill=cd5))+
+  facet_wrap(vars(mut_stat))
+  
+  
+  
+
+mydb %>%
+  group_by(CLL,mut_stat,subset, cd5) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,mut_stat,subset) %>% 
+  summarise(p=n/sum(n),cd5) %>% 
+  filter(CLL!="CLL") %>% 
+  ggplot()+
+  geom_col(aes(mut_stat,p,fill=cd5))+
+  facet_wrap(vars(subset))
+
+
+mydb %>%
+  group_by(CLL,mut_stat,subset, cd5) %>% 
+  summarise(n=sum(cn)) %>% 
+  # group_by(CLL,mut_stat,subset) %>% 
+  # summarise(p=n/sum(n),cd5) %>% 
+  filter(CLL!="CLL") %>% 
+  ggplot()+
+  geom_col(aes(mut_stat,n,fill=cd5), position = "dodge")+
+  facet_wrap(vars(subset))
+
+
+
+
+
+```
+
+
+
+```{r general repertoire comparison UvsM}
+
+##AGGiugngi Statistica -- vedi che i due gruppi presentano le stesse differenze
+p1<-mydb %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  
+
+  group_by(CLL,mut_stat,vgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL, mut_stat,sample) %>% 
+  summarise(p=n/sum(n)*100,n,vgene) %>% 
+  group_by(vgene) %>% 
+  filter(any(p>1)) 
+ 
+      ggplot()+
+    geom_hline(yintercept = 0,size=0.75)+
+    
+    geom_col(data=p1%>% filter(CLL=="CLL") ,
+                 # geom_col(data=p1%>% filter(CLL %in% c("CLL","SAMPLE_CDR3")) ,
+
+             aes(vgene,p, fill=mut_stat),color="black",
+             position = "dodge",
+             # position= position_nudge(x=-0.15),
+               width = 0.8,
+             size=0.2
+             # alpha=0.4
+    )+
+    geom_boxplot(data=p1%>% filter(CLL=="Healthy"),
+                 aes(vgene,p, fill=mut_stat),color="black",
+                position= "dodge",
+                 width = 0.7,
+                 outlier.shape = NA,
+                 size=0.2
+    )+
+    geom_text(data=binomial %>%
+                  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+
+                left_join(max_h_signif,by=c("vgene")) %>% 
+                
+                mutate(vgene= str_remove(vgene,"^IGH"),
+                        p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+                       signif_higher=ifelse(signif_higher=="",F,T)
+                       ) %>%
+                filter(vgene %in% unique(p1$vgene)),
+              aes(y=-3,x=vgene, label=p.signif_median, color=signif_higher),
+              show.legend = F, 
+              
+              angle = 45, vjust = 0.5, hjust=0.5,
+              
+              size=4
+              )+
+        # geom_text(data=binomial_UM_kos %>%
+        #         mutate(vgene= str_remove(vgene,"^IGH"),
+        #                # p_cll=ifelse(signif_higher=="**CLL",p.signif,"")
+        #                ) %>%
+        #         filter(vgene %in% unique(p1$vgene)),
+        #       aes(y=-2,x=vgene, label=signif_higher),            )+
+    scale_x_discrete(limits = str_sort(unique(p1$vgene),numeric=T))+
+    scale_y_continuous(limits = c(-3,26), breaks = c(seq(0, 100, by = 5)),
+                       labels =  c(seq(0, 100, by = 5))
+                       )+
+    # scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+    scale_color_manual(values = c("grey70" ,"black"))+
+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+          legend.position = "bottom"
+          
+    )+
+    facet_grid(
+      # cols=vars(clan),
+      rows = vars(CLL),
+      scales = "free_x",
+      space = "free_x")+
+    labs(
+      # title=title,
+      y="% on mutational status",
+      fill="",
+      x="VH genes") 
+      
+# dgene
+      ##AGGiugngi Statistica -- vedi che i due gruppi presentano le stesse differenze
+d1<-mydb %>%
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  
+
+  group_by(CLL,mut_stat,dgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL, mut_stat,sample) %>% 
+  summarise(p=n/sum(n)*100,n,dgene) %>% 
+  group_by(dgene) %>% 
+  filter(any(p>1)) 
+ 
+      ggplot()+
+    geom_hline(yintercept = 0,size=0.75)+
+    
+    geom_col(data=d1%>% filter(CLL=="CLL") ,
+                 # geom_col(data=p1%>% filter(CLL %in% c("CLL","SAMPLE_CDR3")) ,
+
+             aes(dgene,p, fill=mut_stat),color="black",
+             position = "dodge",
+             # position= position_nudge(x=-0.15),
+               width = 0.8,
+             size=0.2
+             # alpha=0.4
+    )+
+    geom_boxplot(data=d1%>% filter(CLL=="Healthy"),
+                 aes(dgene,p, fill=mut_stat),color="black",
+                position= "dodge",
+                 width = 0.7,
+                 outlier.shape = NA,
+                 size=0.2
+    )+
+    # geom_text(data=binomial_dgene %>%
+    #               mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+    #               left_join(max_h_signif,by=c("dgene")) %>% 
+    #               mutate(dgene= str_remove(dgene,"^IGH"),
+    #                     p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+    #                    signif_higher=ifelse(signif_higher=="",F,T)
+    #                    ) %>%
+    #             filter(dgene %in% unique(p1$dgene)),
+    #           aes(y=-3,x=dgene, label=p.signif_median, color=signif_higher),
+    #           show.legend = F, 
+    #           
+    #           angle = 45, vjust = 0.5, hjust=0.5,
+    #           
+    #           size=4
+    #           )+
+        # geom_text(data=binomial_UM_kos %>%
+        #         mutate(dgene= str_remove(dgene,"^IGH"),
+        #                # p_cll=ifelse(signif_higher=="**CLL",p.signif,"")
+        #                ) %>%
+        #         filter(dgene %in% unique(p1$dgene)),
+        #       aes(y=-2,x=dgene, label=signif_higher),            )+
+    # scale_x_discrete(limits = str_sort(unique(p1$dgene),numeric=T))+
+    scale_y_continuous(limits = c(-3,26), breaks = c(seq(0, 100, by = 5)),
+                       labels =  c(seq(0, 100, by = 5))
+                       )+
+    # scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+    scale_color_manual(values = c("grey70" ,"black"))+
+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+          legend.position = "bottom"
+          
+    )+
+    facet_grid(
+      # cols=vars(clan),
+      rows = vars(CLL),
+      scales = "free_x",
+      space = "free_x")+
+    labs(
+      # title=title,
+      y="% on mutational status",
+      fill="",
+      x="VH genes") 
+
+      
+      
+      
+      
+
+ #----- CLL vs CLL only stereo     
+     
+p1<-bind_rows(
+  mydb_stereo_red %>% filter(CLL=="CLL", is.na(maj_subset)  ) %>%  mutate(CLL="CLL_nostereo")  ,
+  mydb_stereo_red %>% filter(CLL=="CLL", !is.na(maj_subset) ) %>%  mutate(CLL="CLL_onlystereo"),
+  mydb_stereo_red %>% filter(CLL!="CLL") 
+  )    %>% 
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+ group_by(CLL,mut_stat,vgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL, mut_stat,sample) %>% 
+  summarise(p=n/sum(n)*100,n,vgene) %>% 
+  group_by(vgene) %>% 
+  filter(any(p>1)) 
+ 
+      ggplot()+
+    geom_hline(yintercept = 0,size=0.75)+
+    
+    geom_col(data=p1%>% filter(CLL!="Healthy") ,
+                 # geom_col(data=p1%>% filter(CLL %in% c("CLL","SAMPLE_CDR3")) ,
+
+             aes(vgene,p, fill=CLL),color="black",
+             position = "dodge",
+             # position= position_nudge(x=-0.15),
+               width = 0.8,
+             size=0.2
+             # alpha=0.4
+    )+
+    geom_boxplot(data=p1%>% filter(CLL=="Healthy"),
+                 aes(vgene,p, fill=CLL),color="black",
+                position= "dodge",
+                 width = 0.4,
+                 outlier.shape = NA,
+                 size=0.2
+    )+
+    geom_text(data=binomial %>%
+                  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+
+                left_join(max_h_signif,by=c("vgene")) %>% 
+                
+                mutate(vgene= str_remove(vgene,"^IGH"),
+                        p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+                       signif_higher=ifelse(signif_higher=="",F,T)
+                       ) %>%
+                filter(vgene %in% unique(p1$vgene)),
+              aes(y=-3,x=vgene, label=p.signif_median, color=signif_higher),
+              show.legend = F, 
+              
+              angle = 45, vjust = 0.5, hjust=0.5,
+              
+              size=4
+              )+
+        # geom_text(data=binomial_UM_kos %>%
+        #         mutate(vgene= str_remove(vgene,"^IGH"),
+        #                # p_cll=ifelse(signif_higher=="**CLL",p.signif,"")
+        #                ) %>%
+        #         filter(vgene %in% unique(p1$vgene)),
+        #       aes(y=-2,x=vgene, label=signif_higher),            )+
+    scale_x_discrete(limits = str_sort(unique(p1$vgene),numeric=T))+
+    scale_y_continuous(limits = c(-3,26), breaks = c(seq(0, 100, by = 5)),
+                       labels =  c(seq(0, 100, by = 5))
+                       )+
+    # scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+    scale_color_manual(values = c("grey70" ,"black"))+
+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+          legend.position = "bottom"
+          
+    )+
+    facet_grid(
+      # cols=vars(clan),
+      rows = vars(mut_stat),
+      scales = "free_x",
+      space = "free_x")+
+    labs(
+      # title=title,
+      y="% on mutational status",
+      fill="",
+      x="VH genes")  
+
+      
+
+p1<-bind_rows(
+  mydb_stereo_red %>% filter(CLL=="CLL", is.na(maj_subset)  ) %>%  mutate(CLL="CLL_nostereo")  ,
+  mydb_stereo_red %>% filter(CLL=="CLL", !is.na(maj_subset) ) %>%  mutate(CLL="CLL_onlystereo"),
+  mydb_stereo_red %>% filter(CLL!="CLL") 
+  )    %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  filter( junction_aa_length <40)  %>% 
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  # mutate(assigned_subset=str_remove(assigned_subset,"CLL"),
+  #        assigned_subset=ifelse(is.na(assigned_subset) |
+  #                                 assigned_subset %in% c("skipped/unhealthy","unassigned"),
+  #                               "unassigned",assigned_subset))  %>% 
+  mutate(maj_subset=ifelse( grepl("^#m",maj_subset),"minor",maj_subset)) %>% 
+
+  group_by(CLL,mut_stat,junction_aa_length) %>%
+  summarise(n=sum(cn)) %>%
+  group_by(CLL,mut_stat) %>% 
+  summarise(p=n/sum(n)*100,junction_aa_length,mut_stat)  %>% 
+  ungroup()  
+  # mutate(maj_subset=ifelse( grepl("^#m",maj_subset),"minor",maj_subset))
+
+
+
+ggplot(data=p1 ,aes(junction_aa_length,p))+
+  geom_line(data=p1  %>%
+              group_by(CLL,mut_stat,junction_aa_length) %>%
+              summarise(s=sum(p)), 
+            # position=position_dodge(width = 1 ),
+            aes(junction_aa_length,s+0.1 ,color= CLL) ,linewidth=1, 
+            show.legend = F)+
+ 
+  
+  scale_x_continuous(limits =c(7,34) , breaks = seq(7,35))+
+  # scale_fill_manual(values= pal_31 ) +
+  ylab("% on mut_status")+
+  scale_color_manual(values = c("CLL_onlystereo" = "red",
+                                "Healthy" = "darkseagreen3",
+                                "CLL_nostereo" = "yellow" )) +
+    scale_fill_manual(values = c("CLL" = "red",
+                                "Healthy" = "darkseagreen3",
+                                "CLL_red" = "yellow" )) +
+    facet_grid(rows = vars(mut_stat)  ) +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust =0.5, hjust=1)) +
+  labs(
+       # title=title,
+       x= "aa HCDR3 length",
+       y="% on Mutationa status",
+       color= "HCDR3 length distribution",
+       fill=""
+       )  +
+   theme(legend.key.size = unit(0.5, 'cm'), legend.position = "bottom")
+
+
+  
+
+```
+
+
+```{r figura 0 -VGENE noMUT}
+
+p1<-mydb %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  
+  group_by(CLL,clan,vgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,sample) %>% 
+  summarise(p=n/sum(n)*100,n,vgene,clan) %>% 
+  group_by(vgene) %>% 
+  filter(any(p>1)) 
+
+
+p2<-mydb %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  
+  group_by(CLL,clan,vgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,clan, vgene) %>% 
+  summarise(n=mean(n)) %>% 
+  group_by(CLL) %>% 
+  summarise(p=n/sum(n)*100,n,vgene,clan) %>% 
+  group_by(vgene) %>% 
+  filter(any(p>1)) 
+
+
+
+
+v0<-      ggplot()+
+  geom_hline(yintercept = 0,size=0.75)+
+  
+  # geom_col(data=p1%>% filter(CLL=="CLL") ,
+  geom_col(data=p1%>% filter(CLL %in% c("CLL","SAMPLE_CDR3")) ,
+           
+           aes(vgene,p, fill=CLL),color="black",
+           position = "dodge",
+           # position= position_nudge(x=-0.15),
+           width = 0.8,
+           size=0.2
+           # alpha=0.4
+  )+
+  geom_boxplot(data=p1%>% filter(CLL=="Healthy"),
+               aes(vgene,p, fill=CLL),color="black",
+               # position= position_nudge(x=+0.15),
+               width = 0.4,
+               outlier.shape = NA,
+               size=0.2
+  )+
+geom_text(data=binomial %>%
+            mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+            
+            left_join(max_h_signif,by=c("vgene")) %>% 
+            
+            mutate(vgene= str_remove(vgene,"^IGH"),
+                   p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+                   signif_higher=ifelse(signif_higher=="",F,T)
+            ) %>%
+            filter(vgene %in% unique(p1$vgene)),
+          aes(y=-1,x=vgene, label=p.signif_median, color=signif_higher),
+          show.legend = F, 
+          
+          angle = 45, vjust = 0.5, hjust=0.5,
+          
+          size=4
+)+
+
+  scale_x_discrete(limits = str_sort(unique(p1$vgene),numeric=T))+
+  scale_y_continuous(limits = c(-1,15), breaks = c(seq(0, 100, by = 5)),
+                     labels =  c(seq(0, 100, by = 5))
+  )+
+  scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+  scale_color_manual(values = c("grey" ,"black"))+
+  
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+        axis.text.y = element_text( size=10),
+        legend.position = "bottom"
+        
+  )+
+  labs(
+    # title=title,
+    y="% on total",
+    fill="",
+    x="VH genes")  
+v0
+
+title="Fig Vgene_no_UM2_2024"
+v0
+ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+        width = 16,height =10, units = "cm")
+
+
+
+```
+
+
+
+```{r Binomial Function}
+library(rlang)
+perform_binomial_test <- function(data, group_var, control_var, gene_col, count_col) {
+  binom_table <- data %>%
+    group_by({{group_var}}, {{gene_col}}) %>%
+    summarise(n = sum({{count_col}}), .groups = "drop") %>%
+    pivot_wider(names_from = {{group_var}}, values_from = n) %>%
+    filter(!is.na({{group_var}}), !is.na({{control_var}}))
+
+
+  # Perform binomial test for each gene
+  binomial <- foreach(s = unique(data[[as.character(rlang::ensym(gene_col))]])[1:25], .combine = rbind) %do% {
+
+    bDB <- binom_table %>%
+      filter(.data[[as.character(rlang::ensym(gene_col))]] == s)
+    if ( nrow(bDB) != 0) {
+      
+    print(bDB)
+    # Statistics with bulk sum
+    tryCatch(
+    binstat_sum <- binom.test(bDB[[as.character(rlang::ensym(group_var))]],
+                              sum(binom_table[[as.character(rlang::ensym(group_var))]]),
+                              p = bDB[[as.character(rlang::ensym(control_var))]] / sum(binom_table[[as.character(rlang::ensym(control_var))]]))
+    )
+    
+    # Statistics with mean
+    tryCatch(
+    binstat_mean <- binom.test(bDB[[as_name(enquo(group_var))]],
+                               sum(binom_table[[as_name(enquo(group_var))]]),
+                               p = mean(data[data[[as_name(enquo(gene_col))]] == s & data[[as_name(enquo(group_var))]] == as_name(enquo(control_var)), ][[as_name(enquo(count_col))]]))
+    )
+    # Statistics with median
+    tryCatch(
+    binstat_median <- binom.test(bDB[[as_name(enquo(group_var))]],
+                                 sum(binom_table[[as_name(enquo(group_var))]]),
+                                 p = median(data[data[[as_name(enquo(gene_col))]] == s & data[[as_name(enquo(group_var))]] == as_name(enquo(control_var)), ][[as_name(enquo(count_col))]]))
+    )
+    
+    tibble(
+      !!enquo(gene_col) := s,
+      p.adj_sum = binstat_sum$p.value * nrow(binom_table),
+      p.adj_mean = binstat_mean$p.value * nrow(binom_table),
+      p.adj_median = binstat_median$p.value * nrow(binom_table)
+    )
+ 
+      
+      }else { 
+      print("EMPTY")
+      NA}
+    } 
+
+  
+  binomial %>%
+    mutate(
+      p.signif_median = case_when(
+        p.adj_median > 0.05 ~ "ns",
+        p.adj_median > 0.01 & p.adj_median <= 0.05 ~ "",
+        p.adj_median > 0.001 & p.adj_median <= 0.01 ~ "",
+        p.adj_median > 0.0001 & p.adj_median <= 0.001 ~ "",
+        p.adj_median <= 0.0001 ~ ""
+      ),
+      p.signif_mean = case_when(
+        p.adj_mean > 0.05 ~ "ns",
+        p.adj_mean > 0.01 & p.adj_mean <= 0.05 ~ "",
+        p.adj_mean > 0.001 & p.adj_mean <= 0.01 ~ "",
+        p.adj_mean > 0.0001 & p.adj_mean <= 0.001 ~ "",
+        p.adj_mean <= 0.0001 ~ "**"
+      ),
+      p.signif_sum = case_when(
+        p.adj_sum > 0.05 ~ "ns",
+        p.adj_sum > 0.01 & p.adj_sum <= 0.05 ~ "",
+        p.adj_sum > 0.001 & p.adj_sum <= 0.01 ~ "",
+        p.adj_sum > 0.0001 & p.adj_sum <= 0.001 ~ "*",
+        p.adj_sum <= 0.0001 ~ "**"
+      )
+    )
+}
+
+
+```
+
+
+```{r VGENE figura 1}
+
+
+
+p1<-mydb %>% 
+  #TENTATIVI ESPLORATIVI
+  #   mutate(combo= str_c(
+  #  ifelse(vgene=="IGHV1-69", "V","*"),         
+  # ifelse(dgene %in% c("IGHD3-3" ), "D","*"),
+  # ifelse(jgene =="IGHJ6"  , "J","*")
+  # )) %>% 
+  # filter(
+  #    junction_aa_length <=16 | CLL=="Healthy"
+  # #   combo=="***"
+  #  ) %>%
+  # bind_rows(mydb_stereo_red %>% filter(CLL=="CLL",
+  #                                      # junction_aa_length <=13
+  #                                      ) %>% mutate(CLL="CLL_red"),
+  #           # porva_cdr3 %>% mutate(CLL="SAMPLE_CDR3",sample="CDR3")
+  #           ) %>% 
+  # filter(productive==T) %>% 
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+
+  group_by(CLL,mut_stat,vgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL, mut_stat,sample) %>% 
+  summarise(p=n/sum(n)*100,n,vgene,mut_stat)  
+
+p1 %>% group_by(mut_stat, vgene) %>% 
+  summarise(ratio= p[CLL=="CLL"]/p[CLL=="Healthy"])
+ 
+vgene_maj05<-p1 %>%  filter(CLL=="CLL",
+               p>1) %>% pull(vgene) %>% unique()
+p1<-p1 %>% filter(vgene %in% vgene_maj05)
+
+max_h_signif<-p1 %>% group_by(mut_stat,vgene) %>% slice_max(p,n=1)
+
+v1 <- ggplot() +
+  geom_hline(yintercept = 0, size = 0.75) +
+  # geom_col(data=p1%>% filter(CLL=="CLL") ,
+  geom_col(
+    data = p1 %>% filter(CLL %in% c("CLL", "SAMPLE_CDR3")) ,
+    aes(vgene, p, fill = CLL),
+    color = "black",
+    position = "dodge",
+    # position= position_nudge(x=-0.15),
+    width = 0.8,
+    size = 0.2
+    # alpha=0.4
+  ) +
+  geom_boxplot(
+    data = p1 %>% filter(CLL == "Healthy"),
+    aes(vgene, p, fill = CLL),
+    color = "black",
+    # position= position_nudge(x=+0.15),
+    width = 0.4,
+    outlier.shape = NA,
+    size = 0.2
+  ) +
+  geom_text(
+    data = binomial_UM %>%
+      mutate(vgene = str_remove(vgene, "^IGH")) %>%
+      left_join(max_h_signif, by = c("mut_stat", "vgene")) %>%
+      mutate(
+        vgene = str_remove(vgene, "^IGH"),
+        p.signif_median = ifelse(p.signif_median == "ns", "", p.signif_median),
+        signif_higher = ifelse(signif_higher == "", F, T)
+      ) %>%
+      filter(vgene %in% unique(p1$vgene)),
+    aes(
+      y = -3,
+      x = vgene,
+      label = p.signif_median,
+      color = signif_higher
+    ),
+    show.legend = F,
+    angle = 45,
+    vjust = 0.5,
+    hjust = 0.5,
+    size = 4
+  ) +
+  scale_x_discrete(limits = str_sort(unique(p1$vgene), numeric = T)) +
+  scale_y_continuous(
+    limits = c(-3.5, 26),
+    breaks = c(seq(0, 100, by = 5)),
+    labels =  c(seq(0, 100, by = 5))
+  ) +
+  scale_fill_manual(values = c(
+    "CLL" = "red",
+    "CLL_red" = "yellow",
+    "Healthy" = "darkseagreen3"
+  )) +
+  scale_color_manual(values = c("grey" , "black")) +
+  
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(
+      angle = 90,
+      vjust = 0.5,
+      hjust = 1,
+      size = 10
+    ),
+    axis.text.y = element_text(size = 10),
+    legend.position = "bottom"
+    
+  ) +
+  facet_grid(# cols=vars(clan),
+    rows = vars(mut_stat),
+    scales = "free_x",
+    space = "free_x") +
+  labs(# title=title,
+    y = "% on mutational status",
+    fill = "",
+    x = "VH genes")
+
+title = "Fig VgeneUM_vlast"
+
+v1
+
+    
+      ggsave(plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+             width = 16,height =12, units = "cm")
+    
+  p1 %>% 
+    group_by(mut_stat,vgene) %>% 
+    summarise(rapp=p[CLL=="CLL"]/p[CLL=="Healthy"]) %>%
+    group_by(mut_stat,vgene) %>% 
+    summarise(m=median(rapp)) %>% View()
+  
+  
+  
+```
+
+
+
+```{r DGENE}
+##### Dgene dodge ----
+  
+  # library(immuneSIM)
+
+vdj_list =immuneSIM::list_germline_genes_allele_01
+
+d_list<-vdj_list$hs$ig$h$D %>% 
+  rename(dgene=gene) %>% 
+  mutate(nt_length=str_length(sequence),
+         aa_sequence= translateDNA(sequence),
+         aa_length=str_length(aa_sequence),
+         d_frame=1, dgene= str_remove(dgene,"IGH")) %>% arrange(desc(nt_length))
+
+d_order<- d_list %>%    pull(dgene)  
+d_order<-factor(d_order, levels = d_order) 
+   
+   
+   
+title= str_c("D gene usage distribution CLL vs CD5+ Control ",
+             cd5_choice,"_",cregion_choice) 
+# mydb %>%
+    # bind_rows(CLL_20k) %>% 
+p1 <- mydb %>% 
+  bind_rows(mydb_stereo_red %>%  filter(CLL=="CLL") %>%  mutate(CLL="CLL_red")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+    mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+
+  group_by(CLL,mut_stat,dgene, sample ) %>% 
+  summarise(m=sum(cn)) %>% 
+  # group_by(CLL,mut_stat,dgene) %>% 
+  # summarise(m= median(n)) %>% 
+  group_by(CLL,mut_stat,sample) %>% 
+  summarise(p=m/sum(m)*100,dgene,m,mut_stat,sample)  %>% 
+  left_join( d_list %>% select(dgene, nt_length)) %>% 
+  filter(!is.na(dgene))
+
+d_order<-d_order[d_order %in% unique(p1$dgene)]
+len_order<-p1$nt_length %>% unique() %>% sort() %>%  rev()
+
+
+d1<-ggplot(p1 %>%  filter(dgene !="") )+
+  # geom_col(aes(dgene,p, fill=CLL),
+  #          width = 0.8, position = "dodge", color="black" ) +
+  
+    geom_col(data=.%>% filter(CLL=="CLL") ,
+           aes(  factor(dgene, levels = d_order),p, fill=CLL),color="black",
+           # position= position_nudge(x=-0.15),
+             width = 0.8,
+           # alpha=0.4 
+           size=0.2
+            )+
+  geom_boxplot(data=.%>% filter(CLL=="Healthy"),
+               aes(
+                 factor(dgene, levels = d_order),
+                 p, fill=CLL),color="black",
+               # position= position_nudge(x=+0.15),
+               width = 0.4,
+                size=0.2,
+               outlier.shape = NA
+  )+
+
+  # geom_point(data=p1%>% filter(CLL=="CLL_red") ,
+  # # geom_point(data=p1%>% filter(CLL=="CLL_red") ,
+  # 
+  #            aes(  factor(dgene, levels = d_order),p, fill=CLL),pch=21,
+  #            color="black",
+  #            # color="red",
+  #            position= position_nudge(x=-0.20),
+  #            # fill="yellow",
+  #            width = 0.16,
+  #            # alpha=0.4
+  # )+
+  
+  geom_text(data=binomial_UM_dgene %>%
+              mutate(dgene=str_remove(dgene,"^IGH"),
+                     p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+                       signif_higher=ifelse(signif_higher=="",F,T)
+
+                     ) %>%
+              filter(dgene %in% unique(p1$dgene),
+                     !is.na(dgene)) %>%
+              left_join( d_list %>% select(dgene, nt_length))    ,
+            aes(y=-2.5,x=dgene, label=p.signif_median, color=signif_higher) , size=4,
+            show.legend = F)+
+    # geom_text(data=binomial_UM_dgene_red %>%
+    #           mutate(dgene=str_remove(dgene,"^IGH"),
+    #                  p_cll=ifelse(signif_higher=="**CLL",p.signif,"")) %>%
+    #           filter(dgene %in% unique(p1$dgene),
+    #                  !is.na(dgene)) %>%
+    #           left_join( d_list %>% select(dgene, nt_length))    ,
+    #         aes(y=-2,x=dgene, label=p_cll) )+
+  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  facet_grid(mut_stat~   factor(nt_length, levels = len_order,
+                                labels = str_c(len_order)),
+             scales = "free_x",
+             space = "free_x" 
+  )+
+  theme_bw()+
+  geom_hline(yintercept = 0,size=0.75)+
+  # scale_x_discrete(limits= d_order, drop=T)+
+  scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+  scale_color_manual(values = c("grey" ,"black"))+
+ylim(-2.5,28)+
+#     scale_x_discrete(
+#     # limits = c(-12,40),
+#                       # breaks = c(0,5,10,15,20,25,30,35),
+# # 
+#   sec.axis = dup_axis(
+#     # breaks =  c("D3-3"),
+#     # labels =  c("ciao"),
+#     # name = ""
+#   )
+#                       )+
+  theme(
+        panel.spacing.x = unit(0, "lines"),
+      strip.text.x = element_text(size =7),
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+      plot.title = element_text(hjust = 0.5,size=10  ),
+          axis.text.y = element_text( size=10),
+      legend.position = "bottom")+
+  coord_cartesian(clip = "off")+
+  labs(
+      # title= "Nucleotide DH germline length",
+       fill="",
+       x= "DH genes by decreasing germinline length",
+       y="% on mutational status",
+       fill="") 
+d1 
+title="Fig3 Dgene UM_v3" 
+
+d1
+   #ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+          #width = 16,height =10, units = "cm")   
+
+    p1 %>% 
+    group_by(mut_stat,dgene) %>% 
+    summarise(rapp=p[CLL=="CLL"]/p[CLL=="Healthy"]) %>%
+    group_by(mut_stat,dgene) %>% 
+    summarise(m=median(rapp)) %>% View()
+   
+   
+  
+```
+
+```{r jgene}
+
+
+p1<- mydb %>%
+   bind_rows(mydb_stereo_red %>%  filter(CLL=="CLL") %>%
+               mutate(CLL="CLL_red"    ),
+                         # porva_cdr3 %>% mutate(CLL="SAMPLE_CDR3",sample="CDR3")
+             ) %>% 
+  mutate(jgene=str_remove(jgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  group_by(CLL,mut_stat, jgene, sample ) %>% 
+  summarise(m=sum(cn)) %>% 
+  # group_by(CLL,mut_stat,jgene) %>%
+  # summarise(m= median(n)) %>%
+  group_by(CLL,mut_stat,sample) %>% 
+  summarise(p=m/sum(m)*100,jgene,mut_stat) 
+
+j1<-ggplot()+
+
+    geom_col(data=p1%>% filter(CLL%in% c( "CLL", "SAMPLE_CDR3") ) ,
+                 aes(jgene, p, fill=CLL),color="black",
+             position = "dodge",
+             # position= position_nudge(x=-0.15),
+             width = 0.8,
+             size=0.2
+             # alpha=0.4
+    )+geom_boxplot(data=p1%>% filter(CLL=="Healthy"),
+                 aes(jgene, p, fill=CLL),color="black",
+                 # position= position_nudge(x=+0.15),
+                 width = 0.4,
+                 outlier.shape = NA,
+                              size=0.2
+
+    )+
+    # geom_point(data=p1%>% filter(CLL!="CLL") ,
+    #              aes(jgene, p, fill=CLL),
+    #            color="black",
+    #            pch=21,
+    #          # color="red",
+    #          # position= position_nudge(x=-0.20), 
+    #          position = position_dodge(width = 0.6),
+    #          
+    #          # fill="yellow",
+    #           # alpha=0.4  
+  # ) +
+ geom_text(data=binomial_UM_jgene %>%
+              mutate(jgene=str_remove(jgene,"^IGH"),
+                     p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+                       signif_higher=ifelse(signif_higher=="",F,T)
+
+                     ),
+            aes(y=-4.5,x=jgene, label=p.signif_median, color=signif_higher) , size=4,
+            show.legend = F)+
+
+
+  facet_wrap(vars(mut_stat),
+             # ncol = 1
+             )+
+  labs(
+    # title=title,
+       y= "% on Mutational status",
+       fill= "",
+       x="JH genes")+
+    geom_hline(yintercept = 0,size=0.75)+
+    scale_y_continuous(limits = c(-4.5,65) , breaks = seq(0, 100, by = 10))+
+    scale_fill_manual(values = c("CLL"="red","CLL_red"="yellow","Healthy"="darkseagreen3"))+
+  scale_color_manual(values = c("white","black"))+
+  theme_bw()+
+  theme(
+       # strip.text.x = element_text(size =7),
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+      legend.position = "bottom"
+  )
+
+title="fig4 Jgene UM_v2"
+j1
+
+  #ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+          #width = 16,height =10, units = "cm")   
+  
+  
+      p1 %>% 
+    group_by(mut_stat,jgene) %>% 
+    summarise(rapp=p[CLL=="CLL"]/p[CLL=="Healthy"]) %>%
+    group_by(mut_stat,jgene) %>% 
+    summarise(m=median(rapp)) %>% View()
+    
+
+```
+
+
+
+```{r  CDR3 First, without STEREOTYPES  }
+
+
+p1<-   bind_rows(
+  mydb_stereo_red  %>%
+    filter(CLL=="CLL") %>%
+    mutate(CLL="CLL_red") ,
+  mydb)  %>%
+  choose_control(cd5_choice,cregion_choice) %>% 
+  filter( junction_aa_length <=35)  %>% 
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  # mutate(assigned_subset=str_remove(assigned_subset,"CLL"),
+  #        assigned_subset=ifelse(is.na(assigned_subset) |
+  #                                 assigned_subset %in% c("skipped/unhealthy","unassigned"),
+  #                               "unassigned",assigned_subset))  %>% 
+  mutate(maj_subset=ifelse( grepl("^#m",maj_subset),"minor",maj_subset)) %>% 
+
+  group_by(CLL,mut_stat,junction_aa_length) %>%
+  summarise(n=sum(cn)) %>%
+  group_by(CLL,mut_stat) %>% 
+  summarise(p=n/sum(n)*100,junction_aa_length,mut_stat)  %>% 
+  ungroup()  
+  # mutate(maj_subset=ifelse( grepl("^#m",maj_subset),"minor",maj_subset))
+
+p_spl<-p1 %>%  filter(CLL=="CLL",mut_stat=="U") %>% group_by(junction_aa_length) %>%  summarise(pp=sum(p))
+spline.d <- as.data.frame(spline(p_spl$junction_aa_length, p_spl$pp))
+
+
+p2<- bind_rows(
+  mydb_stereo_red  %>%
+    filter(CLL=="CLL") %>%
+    mutate(CLL="CLL_red") ,
+  mydb)  %>%
+  choose_control(cd5_choice,cregion_choice) %>% 
+  filter( junction_aa_length <=35)  %>% 
+  filter(CLL!="CLL_red") %>% 
+  group_by(CLL,mut_stat,junction_aa_length) %>% 
+  summarise(n= sum(cn))
+example2 <- p2[rep(seq_along(p2$n), p2$n), ]
+example2 <-  example2 %>%
+  bind_rows(example2[1,1:4] %>% mutate(vgene=" ",n=0, junction_aa_length=0 )) 
+
+ wilcox.test(junction_aa_length ~ CLL, data=example2 %>%  filter(mut_stat =="M")) 
+
+ wilcox.test(
+example2 %>%  filter(CLL=="CLL",mut_stat =="U") %>%  pull(junction_aa_length),
+example2 %>%  filter(CLL!="CLL",mut_stat =="U") %>%  pull(junction_aa_length)
+)
+
+
+ggplot()+
+  # geom_col(  
+  #          aes(junction_aa_length,p, fill=CLL),
+  #          # alpha=0.7,
+  #           position="dodge",
+  #          # color= "black"
+  #          )+
+  geom_density(data=p1 %>%  filter(CLL=="CLL"),
+               aes(x= junction_aa_length,weight=p,), color= "red", adjust=1/5)+
+  facet_wrap(vars(mut_stat))
+
+
+
+
+median_combo<- mydb_stereo_red %>% 
+  filter( junction_aa_length <=35)  %>%  
+  select(junction_aa_length,CLL,mut_stat)%>%
+  group_by(CLL,mut_stat) %>% 
+  summarise(m= median(junction_aa_length),
+            junction_aa_length= median(junction_aa_length)) %>%
+  #cosi ottengo l'altezza della colonna nel grafico
+  left_join(p1  )
+
+
+
+median_combo
+
+ggplot(data=p1 %>%  filter(CLL!="CLL_red"),aes(junction_aa_length,p))+
+  # geom_col(
+  #          aes(junction_aa_length,p, fill=CLL),
+  #          # alpha=0.7,
+  #           position=position_dodge(width = NULL),
+  #          # color= "black"
+  #          )+
+  # geom_density(data=p1 %>%  filter(CLL=="CLL"),
+  #              aes(x= junction_aa_length,y=after_stat(density),), color= "red", inherit.aes = F)+
+  # geom_line(data = spline.d, aes(x = x, y = y))+
+  geom_line(data=p1  %>% filter(CLL!="CLL_red") %>%
+              group_by(CLL,mut_stat,junction_aa_length) %>%
+              summarise(s=sum(p)), 
+            # position=position_dodge(width = 1 ),
+            aes(junction_aa_length,s+0.1 ,color= CLL) ,linewidth=1, 
+            show.legend = F)+
+    # geom_point(data=p1  %>% filter(CLL!="CLL_red") %>%
+    #           group_by(CLL,mut_stat,junction_aa_length) %>%
+    #           summarise(s=sum(p)), position=position_dodge(width = 1 ),
+    #         aes(junction_aa_length,s+0.1 ,fill= CLL) ,linewidth=1, pch=21,
+    #         show.legend = F)+
+   # geom_segment(data= median_combo, aes(x=m,xend=m,
+   #                                      y=0,yend=p+0.1), color= "black", linewidth=1.2,
+   #              # position = position_nudge(x=c(-0.2, -0.2, 0.2, 0.2))
+   #              )+
+                  # position = position_nudge(x=c(0.2 )))+
+   # geom_vline(data= median_combo, aes(xintercept=m), color= c( "red","green","red","green"),linewidth=0.7)+
+
+  
+  scale_x_continuous(limits =c(7,34) , breaks = seq(7,35))+
+  # scale_fill_manual(values= pal_31 ) +
+  ylab("% on mut_status")+
+  scale_color_manual(values = c("CLL" = "red",
+                                "Healthy" = "darkseagreen3",
+                                "CLL_red" = "yellow" )) +
+    scale_fill_manual(values = c("CLL" = "red",
+                                "Healthy" = "darkseagreen3",
+                                "CLL_red" = "yellow" )) +
+  scale_color_manual(values = c("CLL" = "red",
+                                "Healthy" = "darkseagreen3",
+                                "CLL_red" = "yellow" )) +
+    facet_grid(rows = vars(mut_stat)  ) +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust =0.5, hjust=1)) +
+  labs(
+       # title=title,
+       x= "aa HCDR3 length",
+       y="% on Mutationa status",
+       color= "HCDR3 length distribution",
+       fill=""
+       )  +
+   theme(legend.key.size = unit(0.5, 'cm'), legend.position = "bottom")
+
+median_combo
+
+title= "aa HCDR3_first_no_stereo_PPPWWW"
+
+  ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+          width = 16,height =10, units = "cm")      
+   
+
+
+```
+
+```{r aug 2024 density CDR3}
+
+ggplot(data=p1 %>%  filter(CLL!="CLL_red"),aes(junction_aa_length,p))+
+
+  geom_density(data=p1 %>%  filter(CLL=="CLL"),
+               aes(x= junction_aa_length), color= "red", inherit.aes = F,
+               adjust= 0.20)+
+
+
+  # geom_line(data=p1  %>% filter(CLL!="CLL_red") %>%
+  #             group_by(CLL,mut_stat,junction_aa_length) %>%
+  #             summarise(s=sum(p)), 
+  #           # position=position_dodge(width = 1 ),
+  #           aes(junction_aa_length,s+0.1 ,color= CLL) ,linewidth=1, 
+  #           show.legend = F)+
+
+  scale_x_continuous(limits =c(7,34) , breaks = seq(7,35))+
+  # scale_fill_manual(values= pal_31 ) +
+  ylab("% on mut_status")+
+  scale_color_manual(values = c("CLL" = "red",
+                                "Healthy" = "darkseagreen3",
+                                "CLL_red" = "yellow" )) +
+    scale_fill_manual(values = c("CLL" = "red",
+                                "Healthy" = "darkseagreen3",
+                                "CLL_red" = "yellow" )) +
+  scale_color_manual(values = c("CLL" = "red",
+                                "Healthy" = "darkseagreen3",
+                                "CLL_red" = "yellow" )) +
+    facet_grid(rows = vars(mut_stat)  ) +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust =0.5, hjust=1)) +
+  labs(
+       # title=title,
+       x= "aa HCDR3 length",
+       y="% on Mutationa status",
+       color= "HCDR3 length distribution",
+       fill=""
+       )  +
+   theme(legend.key.size = unit(0.5, 'cm'), legend.position = "bottom")
+
+median_combo
+
+
+
+
+```
+
+
+
+```{r  only stereo REDUCED }
+
+
+p1<-bind_rows(mydb,
+  mydb_stereo_red%>%filter(CLL=="CLL") %>% mutate(CLL="CLL_nostereo")) %>% 
+  # filter(productive==T) %>% 
+  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+
+  group_by(CLL,mut_stat,clan,vgene,sample) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL, mut_stat,sample) %>% 
+  summarise(p=n/sum(n)*100,n,vgene,clan,mut_stat)  
+ 
+vgene_maj05<-p1 %>%  filter(CLL=="CLL",
+               p>1) %>% pull(vgene) %>% unique()
+
+Vgene_red<-binomial_UM %>% 
+    mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  mutate( signif_higher=ifelse(signif_higher=="",F,T)) %>% 
+  filter(signif_higher==T) %>% 
+  select(-CLL)
+
+p1<-p1 %>% filter(vgene %in% Vgene_red$vgene,
+                  vgene %in% vgene_maj05)
+
+#VGENE ----
+p_v<- ggplot()+
+    geom_hline(yintercept = 0,size=0.75)+
+    
+    # geom_col(data=p1%>% filter(CLL=="CLL") ,
+   geom_col(data=p1%>% filter(CLL %in% c("CLL_nostereo")) %>%
+              left_join(Vgene_red, by= c("mut_stat","vgene")) %>%
+                filter(signif_higher==T) ,
+             aes(vgene,p, fill=CLL),color="black",
+           # position= position_nudge(x=-0.15),
+             width = 0.8,
+            # alpha=0.4 
+           size=0.2
+            )+
+      geom_boxplot(data=p1%>% filter(CLL=="CLL") %>% 
+                 left_join( Vgene_red, by=c("mut_stat","vgene")) %>% 
+               filter(signif_higher==T),
+             aes(vgene,p, fill=CLL), 
+           # position= position_nudge(x=-0.15),
+             width = 0.6,color="red",# alpha=0.4 
+           size=0.4
+            )+
+    geom_boxplot(data=p1%>% filter(CLL=="Healthy") %>% 
+                left_join(Vgene_red, by= c("mut_stat","vgene")) %>% 
+                filter(signif_higher==T) ,
+                 aes(vgene,p, fill=CLL),color="black",
+                 # position= position_nudge(x=+0.15),
+                 width = 0.4,
+                 outlier.shape = NA,
+                 size=0.2
+    )+
+    # geom_point(data=p1%>% filter(CLL=="CLL_nostereo") ,
+    #          aes(vgene,p, fill=CLL),
+    #          # color="black",
+    #          pch=21,
+    #          color="black",
+    #          position= position_nudge(x=-0.20),
+    #          width = 0.16,
+    #          # alpha=0.4
+    # )+
+    
+    
+  # geom_segment( aes(x=x, xend=x, y=value1, yend=value2), color="grey") +
+  
+  # geom_point(data=p1 %>% filter(CLL=="CLL"),
+  #            aes(x=vgene, y=p, color=CLL) , size=2) +
+  # geom_point(data=p1 %>% filter(CLL=="CLL_nostereo"),
+  #            aes(x=vgene, y=p,color=CLL),   size=2 ) +
+  
+    # geom_point(data=p1 %>% filter(CLL=="Healthy"),
+    #            aes(vgene,p, fill=CLL),
+    #            # color="black",
+    #            position= position_nudge(x=+0.155),
+    #            pch=20,
+    #            alpha=0.5,
+    #            size=0.4
+    # )+
+    geom_text(data=binomial_UM_kos %>%
+                  mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+
+                # left_join(max_h_signif,by=c("vgene")) %>% 
+                
+                mutate(vgene= str_remove(vgene,"^IGH"),
+                        p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+                       signif_higher=ifelse(signif_higher=="",F,T)
+                       ) %>%
+                filter(vgene %in% unique(p1$vgene),
+                       !(vgene=="V2-5" & mut_stat=="U"),
+                       signif_higher==T) ,
+
+              aes(y=-4,x=vgene, label=p.signif_median, color=signif_higher),
+              show.legend = F, 
+              
+              # angle = 45, vjust = 0.5, hjust=0.5,
+              
+              size=4
+              )+
+        # geom_text(data=binomial_UM_kos %>%
+        #         mutate(vgene= str_remove(vgene,"^IGH"),
+        #                # p_cll=ifelse(signif_higher=="**CLL",p.signif,"")
+        #                ) %>%
+        #         filter(vgene %in% unique(p1$vgene)),
+        #       aes(y=-2,x=vgene, label=signif_higher),            )+
+    # scale_x_discrete(limits = str_sort(unique(p1$vgene),numeric=T), drop=T)+
+      # scale_x_discrete(limits = str_sort(numeric=T), drop=T)+
+
+    scale_y_continuous(limits = c(-4,26), breaks = c(seq(0, 100, by = 5)),
+                       labels =  c(seq(0, 100, by = 5))
+                       )+
+    scale_fill_manual(values = c("CLL"="red","CLL_nostereo"="yellow","Healthy"="darkseagreen3"),
+                      labels = c("CLL", "CLL\nnostereo","Healthy"))+
+    scale_color_manual(values = c(
+      # "grey70" ,
+      "black"))+
+
+    theme_bw()+
+    theme(
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+          legend.position = "bottom"
+          
+    )+
+      facet_grid(
+        cols=vars(mut_stat),drop=T,
+        scales = "free_x",
+        space="free_x"
+      )+
+    labs(
+      # title=title,
+      # y="% on mutational status",
+      y="",
+      fill="",
+      x="VH genes")  +
+  guides(fill)
+
+p_v
+
+ 
+    title="Fig Vgene_CLL_nostereoUCED_v2"
+      ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+          width = 16,height =10, units = "cm")  
+      
+ 
+
+##### Dgene dodge ----
+  
+  library(immuneSIM)
+
+vdj_list = immuneSIM::list_germline_genes_allele_01
+
+d_list<-vdj_list$hs$ig$h$D %>% 
+  rename(dgene=gene) %>% 
+  mutate(nt_length=str_length(sequence),
+         aa_sequence= translateDNA(sequence),
+         aa_length=str_length(aa_sequence),
+         d_frame=1, dgene= str_remove(dgene,"IGH")) %>% arrange(desc(nt_length))
+
+d_order<- d_list %>%    pull(dgene)  
+d_order<-factor(d_order, levels = d_order) 
+   
+ Dgene_red<-binomial_UM_dgene %>% 
+    mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  mutate( signif_higher=ifelse(signif_higher=="",F,T)) %>% 
+  filter(signif_higher==T) %>% 
+  select(-CLL)  
+   
+title= str_c("D gene usage distribution CLL vs CD5+ Control ",
+             cd5_choice,"_",cregion_choice) 
+# mydb %>%
+    # bind_rows(CLL_20k) %>% 
+p1 <- mydb %>% 
+  bind_rows(mydb_stereo_red %>%  filter(CLL=="CLL") %>%  mutate(CLL="CLL_nostereo")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+    mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+
+  group_by(CLL,mut_stat,dgene, sample ) %>% 
+  summarise(m=sum(cn)) %>% 
+  # group_by(CLL,mut_stat,dgene) %>% 
+  # summarise(m= median(n)) %>% 
+  group_by(CLL,mut_stat,sample) %>% 
+  summarise(p=m/sum(m)*100,dgene,m,mut_stat,sample)  %>% 
+  left_join( d_list %>% select(dgene, nt_length)) %>% 
+  filter(!is.na(dgene),
+         dgene %in% Dgene_red$dgene)
+
+d_order<-d_order[d_order %in% unique(p1$dgene)]
+len_order<-p1$nt_length %>% unique() %>% sort() %>%  rev()
+
+
+p_d<-ggplot(p1 %>%  filter(dgene !="",
+                      ) )+
+  # geom_col(aes(dgene,p, fill=CLL),
+  #          width = 0.8, position = "dodge", color="black" ) +
+  
+    geom_col(data=.%>% filter(CLL=="CLL_nostereo") %>% 
+                 left_join( Dgene_red, by=c("mut_stat","dgene")) %>% 
+               filter(signif_higher==T),
+           aes(  factor(dgene, levels = d_order),p, fill=CLL),color="black",
+           # position= position_nudge(x=-0.15),
+             width = 0.8,
+            # alpha=0.4 
+           size=0.2
+            )+
+      geom_boxplot(data=.%>% filter(CLL=="CLL") %>% 
+                 left_join( Dgene_red, by=c("mut_stat","dgene")) %>% 
+               filter(signif_higher==T),
+           aes(  factor(dgene, levels = d_order),p,fill=CLL  ), 
+           # position= position_nudge(x=-0.15),
+             width = 0.6,color="red",# alpha=0.4 
+           size=0.4
+            )+
+  geom_boxplot(data=.%>% filter(CLL=="Healthy") %>% 
+                 left_join( Dgene_red, by=c("mut_stat","dgene")) %>% 
+               filter(signif_higher==T),
+               aes(
+                 factor(dgene, levels = d_order),
+                 p, fill=CLL),color="black",
+               # position= position_nudge(x=+0.15),
+               width = 0.4,
+                size=0.2,
+               outlier.shape = NA
+  )+
+  geom_text(data=binomial_UM_dgene_red %>%
+              mutate(dgene=str_remove(dgene,"^IGH"),
+                     p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+                       signif_higher=ifelse(signif_higher=="",F,T)
+                     ) %>%
+              filter(dgene %in% unique(p1$dgene),
+                     !is.na(dgene),
+                     !(dgene=="D3-9" & mut_stat=="M"),
+                     signif_higher==T) %>%
+              left_join( d_list %>% select(dgene, nt_length)) ,
+            aes(y=-3,x=dgene, label=p.signif_median) , size=4,
+            show.legend = F)+
+    # geom_text(data=binomial_UM_dgene_red %>%
+    #           mutate(dgene=str_remove(dgene,"^IGH"),
+    #                  p_cll=ifelse(signif_higher=="**CLL",p.signif,"")) %>%
+    #           filter(dgene %in% unique(p1$dgene),
+    #                  !is.na(dgene)) %>%
+    #           left_join( d_list %>% select(dgene, nt_length))    ,
+    #         aes(y=-2,x=dgene, label=p_cll) )+
+  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  # facet_grid(mut_stat~   factor(nt_length, levels = len_order,
+  #                               labels = str_c(len_order)),
+  #            scales = "free_x",
+  #            space = "free_x" 
+  # )+
+  facet_grid(
+        cols=vars(mut_stat),drop=T,
+        scales = "free_x",
+        space="free_x"
+      )+
+  theme_bw()+
+  geom_hline(yintercept = 0,size=0.75)+
+  # scale_x_discrete(limits= d_order, drop=T)+
+  scale_fill_manual(values = c("CLL"="red","CLL_nostereo"="yellow","Healthy"="darkseagreen3"))+
+  # scale_color_manual(values = c(
+  #   # "grey70" ,
+  #   "black"))+
+  scale_y_continuous(limits = c(-3,26), breaks = c(
+     seq(0, 100, by = 5)),
+                       labels =  c(
+                                    seq(0, 100, by = 5))
+                       )+  theme(
+        # panel.spacing.x = unit(0, "lines"),
+      strip.text.x = element_text(size =7),
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+      legend.position = "bottom")+
+  labs(
+    # title=title,
+       fill="",
+       x= "DH genes",
+       y="",
+       # y="% on mutational status",
+       fill="") 
+p_d
+
+title="Fig3 Dgene UM_REDUCED" 
+   ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+          width = 16,height =10, units = "cm")   
+
+    
+### JGENE ----
+   p1<- mydb %>%
+   bind_rows(mydb_stereo_red %>%  filter(CLL=="CLL") %>%
+               mutate(CLL="CLL_nostereo"    )) %>% 
+  mutate(jgene=str_remove(jgene,"^IGH")) %>% 
+  choose_control(cd5_choice,cregion_choice) %>% 
+  group_by(CLL,mut_stat, jgene, sample ) %>% 
+  summarise(m=sum(cn)) %>% 
+  # group_by(CLL,mut_stat,jgene) %>%
+  # summarise(m= median(n)) %>%
+  group_by(CLL,mut_stat,sample) %>% 
+  summarise(p=m/sum(m)*100,jgene,mut_stat)  
+
+    p1<- p1 %>% filter(jgene=="J6")
+
+p_j<-ggplot()+
+
+    geom_col(data=p1%>% filter(CLL%in% c( "CLL_nostereo") ) ,
+                 aes(jgene, p, fill=CLL),color="black",
+               width = 0.8,
+            # alpha=0.4 
+           size=0.2
+            )+
+      geom_boxplot(data=p1%>% filter(CLL=="CLL")  ,
+                  aes(jgene, p, fill=CLL), 
+           # position= position_nudge(x=-0.15),
+             width = 0.6,color="red",# alpha=0.4 
+           size=0.4
+            )+
+        geom_boxplot(data=p1%>% filter(CLL=="Healthy"),
+                 aes(jgene, p, fill=CLL),color="black",
+                 # position= position_nudge(x=+0.15),
+                 width = 0.4,
+                 outlier.shape = NA,
+                              size=0.2
+
+    )+
+ geom_text(data=binomial_UM_jgene%>%
+              mutate(jgene=str_remove(jgene,"^IGH"),
+                     p.signif_median=ifelse(p.signif_median=="ns","",p.signif_median),
+                       signif_higher=ifelse(signif_higher=="",F,T)  ) %>% 
+                       filter(jgene=="J6"),
+            aes(y=-6,x=jgene, label=p.signif_median, color=signif_higher) , size=4,
+            show.legend = F)+
+
+
+  facet_grid(cols=vars(mut_stat), scales = "free_x", space="free_x")+
+  labs(
+    # title=title,
+       y="", #"% on Mutational status",
+       fill= "",
+       x="JH genes")+
+    geom_hline(yintercept = 0,size=0.75)+
+  scale_y_continuous(limits = c(-6,52), breaks = c(seq(0, 100, by = 10)),
+                       labels =  c( seq(0, 100, by = 10))
+                       )+
+    scale_fill_manual(values = c("CLL"="red","CLL_nostereo"="yellow","Healthy"="darkseagreen3"))+
+  scale_color_manual(values = c(
+    # "grey70",
+    "black"))+
+  theme_bw()+
+  theme(
+            # panel.spacing.x = unit(0, "lines"),
+      # strip.text.x = element_text(size =7),
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=10),
+          axis.text.y = element_text( size=10),
+      legend.position = "bottom"
+  )
+p_j
+
+# title="fig4 Jgene UM_REDUCED"
+#   ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+#           width = 16,height =10, units = "cm")  
+
+ptxt<-ggplot()+
+  geom_blank()+
+  labs(y="% on mutational status")+
+  theme_minimal()
+
+ 
+
+tmp1<- theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8) ,
+             axis.text.y = element_text( size=8))      
+      
+ pp1 <- ggpubr::ggarrange( p_d+tmp1,p_j+tmp1,
+                   nrow = 1, ncol =2,
+                   widths = c(.72, .28), common.legend = TRUE,
+                   legend = "none", align="hv",
+                   labels =  c("","C"))
+ 
+  
+ 
+  
+ x1<- ggpubr::ggarrange(p_v  +theme(#legend.position = "none",
+                              ,axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8) ,
+                              axis.text.y = element_text( size=8)) ,
+
+                   pp1 ,common.legend = TRUE,
+                   legend = "right", align="hv",
+                   nrow = 2, ncol =1,labels = c("A","B"),
+                   heights = c(1,1)  
+                   )
+ # ptxt+x1+  plot_layout(widths = c(1, 10000)  ) 
+
+ 
+ 
+library(patchwork)
+
+
+p_v
+ 
+ (p_v +theme(legend.position = "none",
+                              axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=8) ,
+                              axis.text.y = element_text( size=8)))  / (pp1)+ 
+  plot_layout(widths = c(1, 1), heights =  c(1, 1.25)   ) 
+ 
+ 
+title="pannello VDJ stereo_v2"
+  ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+           width = 16,height =10, units = "cm")  
+ 
+ 
+  ptxt+x1+  plot_layout(widths = c(1, 10000)  ) 
+title="pannello VDJ stereo_v4"
+  ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+           width = 16,height =10, units = "cm")   
+ 
+
+```
+
+
+```{r chatgpt}
+
+
+ggplot() +
+  geom_col(data = p1 %>% filter(CLL != "Healthy"),
+           aes(junction_aa_length, p, fill = CLL),
+           position = "dodge",
+           alpha = 0) +
+  
+  geom_line(data = p1 %>%
+              filter(CLL == "CLL_nostereo") %>%
+              group_by(CLL, mut_stat, junction_aa_length) %>%
+              summarise(s = sum(p)),
+            aes(junction_aa_length, s + 0.1),
+            color = "black",
+            linewidth = 1,
+            show.legend = FALSE) +
+  
+  geom_line(data = p1 %>%
+              filter(CLL == "CLL") %>%
+              group_by(CLL, mut_stat, junction_aa_length) %>%
+              summarise(s = sum(p)),
+            aes(junction_aa_length, s + 0.1, color = CLL),
+            linewidth = 1,
+            color = "black",
+            show.legend = FALSE) +
+  
+  geom_line(data = p1 %>%
+              filter(CLL != "Healthy") %>%
+              group_by(CLL, mut_stat, junction_aa_length) %>%
+              summarise(s = sum(p)),
+            aes(junction_aa_length, s + 0.1, color = CLL),
+            linewidth = 0.7,
+            show.legend = FALSE) +
+  
+  geom_smooth(data = p1 %>%
+                filter(CLL != "Healthy") %>%
+                group_by(CLL, mut_stat, junction_aa_length) %>%
+                summarise(s = sum(p)),
+              aes(junction_aa_length, s + 0.1, color = CLL),
+              span=0.2,
+              method = "loess", se = FALSE, linewidth = 1) +
+  
+  scale_x_continuous(limits = c(7, 34), breaks = seq(7, 35)) +
+  scale_fill_manual(values = c("red", "yellow", "darkseagreen")) +
+  ylab("% on mut_status") +
+  scale_color_manual(values = c("CLL" = "red",
+                                "Healthy" = "darkseagreen",
+                                "CLL_nostereo" = "yellow")) +
+  facet_grid(rows = vars(mut_stat)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  labs(
+    x = "aa HCDR3 length",
+    y = "% on Mutationa status",
+    color = "HCDR3 length distribution",
+    fill = ""
+  ) +
+  theme(legend.key.size = unit(0.5, 'cm'),
+        legend.position = "bottom")
+
+
+
+
+
+```
+
+
+
+
+```{r single VDJ frequency dotplot}
+
+p0<-mydb  %>% 
+    bind_rows(mydb_stereo_red %>% filter(CLL=="CLL" ) %>%  mutate(CLL="CLL_red")) %>% 
+    mutate(vgene= str_remove(vgene,"^IGH")) %>%
+    mutate(dgene= str_remove(dgene,"^IGH")) %>%
+    mutate(jgene= str_remove(jgene,"^IGH"),
+           stereo= ifelse(is.na(maj_subset),F,T),
+         is_major=  case_when(
+    grepl("^#m", maj_subset)  ~ "minor",
+    grepl("^#[^m]", maj_subset)  ~ "major",
+    is.na(maj_subset) ~ "no stereo"),
+           ) %>% 
+  choose_control(cd5_choice,cregion_choice) 
+  
+  p1<-p0  %>% 
+    # filter(CLL!="CLL_red") %>% 
+  group_by(CLL,mut_stat,vgene,dgene,jgene) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,mut_stat ) %>% 
+  summarise(p=n/sum(n)*100,n,vgene,dgene,jgene, mut_stat) %>% 
+  mutate(VDJ=str_c(vgene,dgene,jgene, sep="_")) %>% 
+  filter(CLL != "CLL") %>%
+  mutate(sample = paste(mut_stat, CLL, sep = "-")) %>%
+  mutate(sample = factor(sample, levels = c("U-CLL_red", "U-Healthy", "M-CLL_red", "M-Healthy")))
+
+maxDB <- p1 %>%
+  group_by(CLL, mut_stat) %>%
+  slice_max(p, n = 3)
+
+top3_VDJ<-unique(maxDB$VDJ)
+  
+  
+  
+p1 %>%
+  ggplot(aes(sample, p)) +
+  # geom_boxplot(outlier.shape = NA) +
+  geom_jitter(data = . %>% filter(!(VDJ %in% maxDB$VDJ)),
+              alpha = .3, pch=20) +
+geom_point(data = . %>% filter(VDJ %in% maxDB$VDJ), aes(color=VDJ),show.legend = T,) +
+  geom_line(data = . %>% filter(VDJ %in% maxDB$VDJ), aes(group = VDJ, color=VDJ),show.legend = F, ) +
+# ggrepel::geom_label_repel(
+#       data = . %>% filter(VDJ %in% maxDB$VDJ, sample %in% c("U-Healthy")),
+#       aes(label = VDJ,fill=VDJ, segment.color =VDJ,color =VDJ), max.overlaps = Inf,
+#       min.segment.length = 0,direction = "y",nudge_x = +1.75,
+#       hjust = "left", show.legend = F, size=3, force = 0.05,
+#       color="black",
+# # fontface= "bold",
+# 
+#       bg.color="black",
+#       bg.r = 0.15  ) +
+# ggrepel::geom_label_repel(
+#       data = . %>% filter(VDJ %in% maxDB$VDJ, sample %in% c("M-CLL_red")),
+#       aes(label = VDJ,fill=VDJ, segment.color =VDJ,color =VDJ), max.overlaps = Inf,
+#       min.segment.length = 0,direction = "y",nudge_x = -1.75,
+#       hjust = "right", show.legend = F, size=3, force = 0.05,
+#       color="black",
+#       # fontface= "bold",
+#       
+#       bg.color="black",
+#       bg.r = 0.15  
+#       
+#       ) +  
+#   
+  
+  
+  # scale_color_manual(values = rainbow(n=8) ,)+
+#   scale_color_manual(values =
+#                        # c("#eb0009","#5234ca","#9bdd03","#bf00b2","#dc8600","#c383ff","#ff6ae7"))+
+#   
+# c("red","brown","orange","blue","cyan","purple","green" )  )+
+  
+    scale_fill_manual(values = rainbow(n=8) , aesthetics = c("fill", "segment.color"))+
+scale_y_continuous( limits = c(-0 ,4), breaks = c(0,1,2,3,4) )  +
+  facet_wrap(vars(mut_stat),scales = "free_x")+
+  theme_bw()+
+  labs(
+    x="",
+    y="% on mutational status",
+    color="IGHV-D-J\nrearrangment"
+  )
+  
+  # scale_y_continuous(limits = c(0,.5))+
+  # facet_grid(.~mut_stat)
+
+title="Fig VDJ davide_5" 
+   # ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+   #        width = 16,height =10, units = "cm")
+
+  
+
+
+```
+
+
+```{r  Definitive p_ratios U-CLL}
+#no subsets
+library(foreach)
+
+
+
+VDJ_comb2<-data.frame()
+  
+foreach(mut_status = c("U","M")) %do% {
+
+#sim CLL
+ vgene_frq<-mydb %>% filter(CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( vgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+dgene_frq<-mydb %>% filter( CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( dgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+jgene_frq<-mydb %>% filter( CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( jgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+v1<-vgene_frq %>%   
+mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  select(vgene, v_p =p)
+d1<-dgene_frq %>% 
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  select(dgene, d_p=p)
+j1<-jgene_frq %>%  
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  select(jgene, j_p=p)
+
+VDJ_comb<- tidyr::crossing(v1,d1,j1) %>%
+   mutate(VDJ= str_c(vgene,dgene,jgene, sep="_"),
+          p_comb=v_p*d_p*j_p,
+          CLL="Healthy",
+           mut_stat=mut_status)
+
+ 
+VDJ_comb2<-bind_rows(VDJ_comb2,VDJ_comb)
+
+}
+
+foreach(mut_status = c("U","M")) %do% {
+
+#sim CLL
+ vgene_frq<-mydb %>% filter(CLL=="CLL", mut_stat==mut_status,
+                             ) %>% 
+  group_by( vgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+dgene_frq<-mydb %>% filter( CLL=="CLL", mut_stat==mut_status,
+                             ) %>% 
+  group_by( dgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+jgene_frq<-mydb %>% filter( CLL=="CLL", mut_stat==mut_status,
+                             ) %>% 
+  group_by( jgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+v1<-vgene_frq %>%   
+mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  select(vgene, v_p =p)
+d1<-dgene_frq %>% 
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  select(dgene, d_p=p)
+j1<-jgene_frq %>%  
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  select(jgene, j_p=p)
+
+VDJ_comb<- tidyr::crossing(v1,d1,j1) %>%
+   mutate(VDJ= str_c(vgene,dgene,jgene, sep="_"),
+          p_comb=v_p*d_p*j_p,
+          CLL="CLL",
+           mut_stat=mut_status)
+
+
+VDJ_comb2<-bind_rows(VDJ_comb2,VDJ_comb)
+
+} 
+  
+#preprocess cll_20k_stereo
+
+p1<-mydb %>% 
+   choose_control(cd5_choice,cregion_choice) %>%  
+  mutate(vgene= str_remove(vgene,"^IGH")) %>%
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  group_by(CLL,mut_stat,vgene,dgene,jgene, 
+             maj_subset,
+           # stereo
+           ) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,mut_stat ) %>% 
+  summarise(p=n/sum(n),n,vgene,dgene,jgene,
+              maj_subset,
+            # stereo
+            ) %>% 
+  mutate(VDJ=str_c(vgene,dgene,jgene, sep="_")) %>%
+  left_join(VDJ_comb2 %>%  select(CLL,mut_stat,VDJ,p_comb)) %>% 
+  mutate(p_ratio=p/p_comb,
+         stereo=ifelse(is.na(maj_subset),F,T)) %>%  ungroup()
+  
+
+p_stereo<- p1 %>% 
+  filter(CLL=="CLL",mut_stat=="U" ) %>% 
+  group_by(VDJ,stereo) %>% 
+  summarise(n=sum(n)) %>% 
+  group_by(VDJ) %>% 
+  summarise(p=n[stereo==T]/sum(n)) %>% 
+  ungroup() %>%  mutate(p_stereo=case_when(
+     p >=0.75  ~ "3/4 stereo",
+     p >=0.5 ~ "2/4 stereo",
+     p >=0.25  ~ "1/4 stereo"
+    ),
+    p_stereo= ifelse(is.na(p_stereo),"stereo < 1/4",p_stereo))
+
+p2<-p1 %>% filter(CLL=="CLL",mut_stat=="U"  ) %>%
+                     group_by(VDJ) %>% 
+                     summarise(p_ratio=sum(p_ratio),
+                               n=sum(n)) %>% 
+  left_join(p_stereo %>%  select(VDJ,p_stereo)) %>%  
+  mutate(   p_stereo= ifelse(is.na(p_stereo),"zero_stereo",p_stereo))
+
+  p3<-left_join(p2,
+            p1 %>% filter(CLL=="Healthy",mut_stat=="U" ) %>% 
+              select(vgene,dgene,jgene,VDJ,p_ratio),
+            by="VDJ")   
+  
+p3$p_diff<- p3$p_ratio.x/p3$p_ratio.y   
+p3$p_diff_log10<- log10(p3$p_diff)
+p3$is_biased<-ifelse((p3$p_diff >=2 |  p3$p_diff <=0.5),T,F)
+
+
+
+### REDUCED dotplot ratio CLL -----
+
+  VDJ_comb_red<-data.frame()
+  
+foreach(mut_status = c("U","M")) %do% {
+
+ vgene_frq<-mydb %>% 
+   filter(CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( vgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+dgene_frq<-mydb %>% filter( CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( dgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+jgene_frq<-mydb %>% filter( CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( jgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+v1<-vgene_frq %>%   
+mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  select(vgene, v_p =p)
+d1<-dgene_frq %>% 
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  select(dgene, d_p=p)
+j1<-jgene_frq %>%  
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  select(jgene, j_p=p)
+
+VDJ_comb<- tidyr::crossing(v1,d1,j1) %>%
+   mutate(VDJ= str_c(vgene,dgene,jgene, sep="_"),
+          p_comb=v_p*d_p*j_p,
+          CLL="Healthy",
+           mut_stat=mut_status)
+
+ 
+VDJ_comb_red<-bind_rows(VDJ_comb_red,VDJ_comb)
+
+}
+
+foreach(mut_status = c("U","M")) %do% {
+
+#sim CLL
+ vgene_frq<-mydb_stereo_red %>% filter(CLL=="CLL", mut_stat==mut_status,
+                             ) %>% 
+  group_by( vgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+dgene_frq<-mydb_stereo_red %>% filter( CLL=="CLL", mut_stat==mut_status,
+                             ) %>% 
+  group_by( dgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+jgene_frq<-mydb_stereo_red %>% filter( CLL=="CLL", mut_stat==mut_status,
+                             ) %>% 
+  group_by( jgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+v1<-vgene_frq %>%   
+mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  select(vgene, v_p =p)
+d1<-dgene_frq %>% 
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  select(dgene, d_p=p)
+j1<-jgene_frq %>%  
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  select(jgene, j_p=p)
+
+VDJ_comb<- tidyr::crossing(v1,d1,j1) %>%
+   mutate(VDJ= str_c(vgene,dgene,jgene, sep="_"),
+          p_comb=v_p*d_p*j_p,
+          CLL="CLL",
+           mut_stat=mut_status)
+
+
+VDJ_comb_red<-bind_rows(VDJ_comb_red,VDJ_comb)
+
+} 
+
+### NO STEREO  -----
+
+  VDJ_comb_nostereo<-data.frame()
+  
+foreach(mut_status = c("U","M")) %do% {
+
+ vgene_frq<-mydb %>% filter(CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( vgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+dgene_frq<-mydb %>% filter( CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( dgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+jgene_frq<-mydb %>% filter( CLL=="Healthy", mut_stat==mut_status,
+                             ) %>% 
+  group_by( jgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+v1<-vgene_frq %>%   
+mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  select(vgene, v_p =p)
+d1<-dgene_frq %>% 
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  select(dgene, d_p=p)
+j1<-jgene_frq %>%  
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  select(jgene, j_p=p)
+
+VDJ_comb<- tidyr::crossing(v1,d1,j1) %>%
+   mutate(VDJ= str_c(vgene,dgene,jgene, sep="_"),
+          p_comb=v_p*d_p*j_p,
+          CLL="Healthy",
+           mut_stat=mut_status)
+
+ 
+VDJ_comb_nostereo<-bind_rows(VDJ_comb_nostereo,VDJ_comb)
+
+}
+
+foreach(mut_status = c("U","M")) %do% {
+
+#sim CLL
+ vgene_frq<-mydb_stereo_red %>% 
+   filter(CLL=="CLL", mut_stat==mut_status,
+                             ) %>%    
+   filter(is.na(maj_subset)) %>% 
+
+  group_by( vgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+dgene_frq<-mydb_stereo_red %>% filter( CLL=="CLL", mut_stat==mut_status,
+                             ) %>%    
+  filter(is.na(maj_subset)) %>% 
+
+  group_by( dgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+jgene_frq<-mydb_stereo_red %>% filter( CLL=="CLL", mut_stat==mut_status,
+                             ) %>%
+  filter(is.na(maj_subset)) %>% 
+
+  group_by( jgene) %>% 
+  summarise(n=sum(cn)) %>%
+  ungroup() %>% 
+  mutate(p=n/sum(n))
+
+v1<-vgene_frq %>%   
+mutate(vgene= str_remove(vgene,"^IGH")) %>% 
+  select(vgene, v_p =p)
+d1<-dgene_frq %>% 
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  select(dgene, d_p=p)
+j1<-jgene_frq %>%  
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  select(jgene, j_p=p)
+
+VDJ_comb<- tidyr::crossing(v1,d1,j1) %>%
+   mutate(VDJ= str_c(vgene,dgene,jgene, sep="_"),
+          p_comb=v_p*d_p*j_p,
+          CLL="CLL",
+           mut_stat=mut_status)
+
+
+VDJ_comb_nostereo<-bind_rows(VDJ_comb_nostereo,VDJ_comb)
+
+} 
+
+
+  p1_group_stereo<-mydb %>% 
+  choose_control(cd5_choice,cregion_choice) %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>%
+  mutate(dgene= str_remove(dgene,"^IGH")) %>%
+  mutate(jgene= str_remove(jgene,"^IGH")) %>%
+  group_by(CLL,mut_stat,vgene,dgene,jgene,
+           ) %>%
+  summarise(n=sum(cn)) %>%
+  group_by(CLL,mut_stat ) %>%
+  summarise(p=n/sum(n),n,vgene,dgene,jgene,
+             ) %>%
+  mutate(VDJ=str_c(vgene,dgene,jgene, sep="_")) %>%
+  left_join(VDJ_comb2 %>%  select(CLL,mut_stat,VDJ,p_comb)) %>%
+  mutate(p_ratio=p/p_comb,
+             ) %>%
+     ungroup() %>%   filter(!is.na(dgene))
+  
+ p1_group_stereo_red<-mydb_stereo_red %>% 
+  choose_control(cd5_choice,cregion_choice) %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>%
+  mutate(dgene= str_remove(dgene,"^IGH")) %>%
+  mutate(jgene= str_remove(jgene,"^IGH")) %>%
+  group_by(CLL,mut_stat,vgene,dgene,jgene,
+           ) %>%
+  summarise(n=sum(cn)) %>%
+  group_by(CLL,mut_stat ) %>%
+  summarise(p=n/sum(n),n,vgene,dgene,jgene,
+             ) %>%
+  mutate(VDJ=str_c(vgene,dgene,jgene, sep="_")) %>%
+  left_join(VDJ_comb_red %>%  select(CLL,mut_stat,VDJ,p_comb)) %>%
+  mutate(p_ratio=p/p_comb,
+             ) %>%
+     ungroup() %>%   filter(!is.na(dgene))  
+  
+ p1_nostereo <-mydb_stereo_red %>% 
+   filter(is.na(maj_subset)) %>% 
+  choose_control(cd5_choice,cregion_choice) %>%
+  mutate(vgene= str_remove(vgene,"^IGH")) %>%
+  mutate(dgene= str_remove(dgene,"^IGH")) %>%
+  mutate(jgene= str_remove(jgene,"^IGH")) %>%
+  group_by(CLL,mut_stat,vgene,dgene,jgene,
+           ) %>%
+  summarise(n=sum(cn)) %>%
+  group_by(CLL,mut_stat ) %>%
+  summarise(p=n/sum(n),n,vgene,dgene,jgene,
+             ) %>%
+  mutate(VDJ=str_c(vgene,dgene,jgene, sep="_")) %>%
+  left_join(VDJ_comb_nostereo %>%  select(CLL,mut_stat,VDJ,p_comb)) %>%
+  mutate(p_ratio=p/p_comb,
+             ) %>%
+     ungroup() %>%   filter(!is.na(dgene))  
+ 
+  
+  
+  
+p_red<-mydb_stereo_red%>%
+   choose_control(cd5_choice,cregion_choice) %>%  
+  mutate(vgene= str_remove(vgene,"^IGH")) %>%
+  mutate(dgene= str_remove(dgene,"^IGH")) %>% 
+  mutate(jgene= str_remove(jgene,"^IGH")) %>% 
+  group_by(CLL,mut_stat,vgene,dgene,jgene,   
+           maj_subset,
+           ) %>% 
+  summarise(n=sum(cn)) %>% 
+  group_by(CLL,mut_stat ) %>% 
+  summarise(p=n/sum(n),n,vgene,dgene,jgene,  
+            maj_subset,
+            ) %>% 
+  mutate(VDJ=str_c(vgene,dgene,jgene, sep="_")) %>%
+  left_join(VDJ_comb_red %>%  select(CLL,mut_stat,VDJ,p_comb)) %>% 
+  mutate(p_ratio=p/p_comb,
+           # )
+         stereo=ifelse(is.na(maj_subset),F,T)) %>%  ungroup()
+ 
+
+p2_red<-p_red %>%
+  filter(CLL=="CLL",mut_stat=="U"  ) %>%
+  filter(
+    # is.na(maj_subset)
+    # vgene =="V1-69" | dgene=="D3-3" | jgene== "J6"
+  ) %>% 
+  group_by(VDJ) %>% 
+  summarise(p_ratio=sum(p_ratio),
+            n=sum(n))  %>% 
+  left_join(p_stereo %>%  select(VDJ,p_stereo)) %>%  
+  mutate(   p_stereo= ifelse(is.na(p_stereo),"zero_stereo",p_stereo))
+
+  
+# CLL vs CLL_stereo_red   
+p3_red_CLL<-left_join(p2 
+                    , p2_red %>%  select(-p_stereo),
+            by="VDJ")  %>% 
+    filter(!is.na(p_ratio.y))
+p3_red_CLL$p_diff<- p3_red_CLL$p_ratio.x/p3_red_CLL$p_ratio.y   
+p3_red_CLL$p_diff_log10<- log10(p3_red_CLL$p_diff)
+
+
+p3_red<-left_join( p2_red,
+                    p1_group_stereo %>% filter(CLL=="Healthy",mut_stat=="U" ) %>% 
+              select(vgene,dgene,jgene,VDJ,p_ratio) ,
+            by="VDJ")  %>% 
+    filter(!is.na(p_ratio.y))
+p3_red$p_diff<- p3_red$p_ratio.x/p3_red$p_ratio.y   
+p3_red$p_diff_log10<- log10(p3_red$p_diff)
+p3_red$is_biased<-ifelse((p3_red$p_diff >=2 |  p3_red$p_diff <=0.5),T,F)
+p3_red_CLL$is_biased<-ifelse((p3_red_CLL$p_diff >=2 |  p3_red_CLL$p_diff <=0.5),T,F)
+
+
+
+p2_nos<-p1_nostereo %>%
+  filter(CLL=="CLL",mut_stat=="U"  ) %>%
+  group_by(VDJ) %>% 
+  summarise(p_ratio=sum(p_ratio),
+            n=sum(n))  %>% 
+  left_join(p_stereo %>%  select(VDJ,p_stereo)) %>%  
+  mutate(   p_stereo= ifelse(is.na(p_stereo),"zero_stereo",p_stereo))
+
+
+p3_nostereo<-left_join( p2_nos,
+                    p1_group_stereo %>% filter(CLL=="Healthy",mut_stat=="U" ) %>% 
+              select(vgene,dgene,jgene,VDJ,p_ratio) ,
+            by="VDJ")  %>% 
+    filter(!is.na(p_ratio.y))
+p3_nostereo$p_diff<- p3_nostereo$p_ratio.x/p3_nostereo$p_ratio.y   
+p3_nostereo$p_diff_log10<- log10(p3_nostereo$p_diff)
+```
+
+```{r  Definitive Grafici}
+#run chunk above
+
+ 
+
+# bias 69_d3-3_j6
+chi_try<-full_join(
+  VDJ_comb2 %>% filter(VDJ=="V1-69_D3-3_J6", mut_stat=="U") %>% select(CLL,p_comb),
+  p1_group_stereo %>% filter(VDJ=="V1-69_D3-3_J6", mut_stat=="U") %>% select(CLL,p),
+  by="CLL")  
+
+chi_red<-full_join(
+  VDJ_comb_red %>% filter(VDJ=="V1-69_D3-3_J6", mut_stat=="U") %>% select(CLL,p_comb),
+  p1_group_stereo_red %>% filter(VDJ=="V1-69_D3-3_J6", mut_stat=="U") %>% select(CLL,p),
+  by="CLL")  
+
+chi_nostereo<-full_join(
+  VDJ_comb_nostereo%>% filter(VDJ=="V1-69_D3-3_J6", mut_stat=="U") %>% select(CLL,p_comb),
+  p1_nostereo %>% filter(VDJ=="V1-69_D3-3_J6", mut_stat=="U") %>% select(CLL,p),
+  by="CLL") 
+
+chi_infl_bias<-full_join(
+VDJ_infl_nobias%>% filter(VDJ=="V1-69_D3-3_J6", mut_stat=="U") %>% select(CLL,p_comb),
+p1_infl%>% filter(VDJ=="V1-69_D3-3_J6", mut_stat=="U") %>% select(CLL,p),
+by="CLL") 
+
+
+vdj69<- bind_rows(chi_try,
+                  chi_red %>% filter(CLL=="CLL") %>% mutate(CLL="CLL nostereo"),
+                  # chi_nostereo %>% filter(CLL=="CLL") %>% mutate(CLL="CLL_noste"),
+                  # chi_infl_bias %>% filter(CLL=="Healthy") %>% mutate(CLL="Healthy_2x")
+                  )%>% 
+  mutate(rapp=p/p_comb,
+         rapp_log=log10(p/p_comb)) 
+ 
+#barplot norm by 1.58 - healhty value
+vdj69 %>%
+  mutate(norm_r=rapp/1.582001) %>%
+  ggplot()+
+    geom_col(aes(CLL,norm_r, fill=CLL), color="black", show.legend = F) +
+  ylab("rapporti p/p_cal")+
+  ylim(0,1.9)+
+  # scale_y_log10( )+
+  scale_fill_manual(values=c( "red","yellow","darkseagreen3"),
+                   )+
+  
+  theme_bw()+
+  # geom_text(aes(x=2,y=2, label= "\u2714"),color="red", fill="black")+
+  # ggrepel::geom_text_repel(aes(x=2,y=2, label= "\u2714"),color="red", bg.color="black")+
+
+  labs(x="",
+       y="Ratio observed/calculated frequency" )
+ 
+title="fig p_calc barplot"
+ ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+          width = 8,height =10, units = "cm")    
+  
+ggplot()+
+  geom_point(data=vdj69,aes(p_comb,p, color=CLL))+
+   geom_abline(slope=1)+
+   theme_bw()+    
+  scale_y_log10(limits = c(0.0001,1))+
+  scale_x_log10(limits = c(0.0001,1)) 
+
+title="VDJ combinations P_obs Vs P_calc ratio in CLL vs Control"
+
+#runna in figure tesi- VDJ davide labell - maxDB
+
+p4<-bind_rows(
+  p3  %>% filter( n>=20) %>% mutate(CLL="CLL"),
+  p3_red %>% filter( n>=20) %>% mutate(CLL="CLL collapsed stereotypes")
+) %>% 
+  mutate(
+    # isVDJ= ifelse(VDJ=="V1-69_D3-3_J6","V1-69_D3-3_J6","others"),
+       isVDJ= ifelse( VDJ %in%  c("V3-23_D3-22_J4" ,"V4-34_D3-22_J4", "V3-23_D3-10_J4",
+                                  "V1-69_D3-3_J6" , "V1-69_D2-2_J6" , "V1-69_D3-3_J4",
+                                  "V3-23_D6-19_J4"), VDJ, NA))
+
+dataset2 <- with(p4, p4[rep(1:nrow(p4), n),])
+
+abc<-ggplot(p4)+
+  # geom_density2d_filled(aes(p_ratio.x,p_ratio.y,  ), alpha=0.7)+
+  geom_point(
+    # data=p3_red %>% filter( n>=5),
+             aes(p_ratio.x,p_ratio.y, size=n,color=VDJ ),
+             alpha=0.3,
+             pch=20, show.legend = F)+
+    geom_point(data = . %>%  filter(!is.na(isVDJ)),
+    # data=p3_red %>% filter( n>=5),
+             aes(p_ratio.x,p_ratio.y, size=n,color=isVDJ ),
+             pch=20)+
+  
+  # geom_point(data=p3_red %>% filter(VDJ=="V1-69_D3-3_J6",n>=5),
+  #            aes(p_ratio.x,p_ratio.y,  )
+  #            ,color="yellow",  )+
+  # geom_point(
+  #     data=p4  %>% filter(VDJ=="V1-69_D3-3_J6",n>=5),
+  #            aes(p_ratio.x,p_ratio.y,size=n,color="V1-69_D3-3_J6"  ),
+  #     alpha=0.6,
+  #      )+
+  geom_abline(slope=1)+
+  facet_wrap(vars(CLL))+
+  theme_bw()+    
+  scale_y_log10(limits = c(0.1,20))+
+  scale_x_log10(limits = c(0.1,20))+
+  scale_size(limits = c(5,600),
+             breaks = c(5,10,20,30,50,70),
+             range=c(0.5,10))+
+  
+    # scale_color_manual(values = c("red","brown","orange","blue","cyan","purple","green" ),na.value = "black"  )+
+  
+  
+  
+  # scale_color_manual(values = c("V1-69_D3-3_J6" = "red",
+  #                               "n" = "black"),
+  #                    breaks= c("V1-69_D3-3_J6"),
+  #                    na.value = "black")+
+  labs(title=title,
+       x="P_obs/P_calc CLL",
+       y="P_obs/P_calc Control",
+       color=NULL)+
+  guides(fill="none",
+          color = "none") +
+
+         # size = guide_legend(nrow = 1)) +
+  theme(legend.position = "bottom",legend.direction = "horizontal")
+abc
+
+
+library(plotly)
+ggplotly(abc)
+
+
+
+ ggsave( plot = last_plot(),filename = str_c(title,".jpeg") ,  device = "jpeg",
+          width = 24,height =12, units = "cm")    
+
+
+
+
+ggplot()+
+  # geom_density2d_filled(data=p3_nostereo %>% filter( n>=5),aes(p_ratio.x,p_ratio.y,  ), alpha=0.7)+
+    geom_point(data=p3_nostereo %>% filter( n>=5),aes(p_ratio.x,p_ratio.y,  ), alpha=0.7)+
+
+    geom_point(data=p3_nostereo %>% filter(VDJ=="V1-69_D3-3_J6",n>=5),aes(p_ratio.x,p_ratio.y,  )
+               ,color="red",  )+
+   geom_abline(slope=1)+
+   theme_bw()+    
+  scale_y_log10(limits = c(0.1,20))+
+  scale_x_log10(limits = c(0.1,20)) 
+
+
+
+ggplot( p1 %>% filter(mut_stat=="U", VDJ %in% vdj_choice ))+
+    geom_col(aes(VDJ,p_ratio, fill=CLL), position = "dodge")+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+
+
+
+p3_red$n %>% table() %>% pie()
+
+title= "scatter VDJ p_ratio red_CLL-U vs Healthy U , n_CLL_5, Biased_T  "   
+  ggplot()+
+                            # vgene =="V1-69" | dgene=="D3-3" | jgene== "J6"
+                            # ) )+
+    
+    geom_point(data= p3_red %>%
+      filter(n >=5, is_biased==T),
+    #   aes(p_ratio.x,p_ratio.y,size=n),pch=20, alpha= 0.5)+
+    # geom_point(data= p3_red %>%
+    #   filter(n >=5, is_biased==F),
+      aes(p_ratio.x,p_ratio.y,size=n),pch=20, alpha= 0.3)+
+    ggrepel::geom_text_repel(
+      data=p3_red %>% filter(n >=5 , is_biased==T),
+       aes(p_ratio.x,p_ratio.y,label=VDJ) , size=2.5, max.overlaps = 15)+         
+
+    labs(title=title,
+      x="ratio_CLL",
+      y="ratio_Healthy_M"
+    )+
+    geom_abline(slope = 1)+
+    # scale_color_viridis(limits= c(5,100),option="C")+
+    scale_color_gradient(  low = "blue",
+  high = "red",
+   limits= c(1,20),
+  na.value = "red")+
+    scale_size(limits = c(5,200),
+               breaks = c(5,15,20,25,30,50))+
+    # coord_cartesian(xlim=c(0,20),
+    #                 ylim=c(0,20))+
+    scale_y_log10(limits = c(0.1,20))+
+    scale_x_log10(limits = c(0.1,20))+
+    theme_bw()+
+    facet_wrap(vars(p_stereo))   
+
+
+
+
+```
+
+
+
+
+
+
+
+
